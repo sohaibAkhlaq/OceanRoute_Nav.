@@ -239,6 +239,22 @@ int main()
     static std::random_device rd;
     static std::mt19937 rng(rd());
 
+    bool showAllPaths = false;            // Toggle for showing all paths
+    RectangleShape showAllPathsButton;    // Button rectangle
+    Text showAllPathsText;                // Button label
+    const float panelButtonHeight = 40.f; // Height of buttons inside the panel
+
+    // Button for Show All Paths
+    showAllPathsButton.setSize(Vector2f(panelWidth - 40, panelButtonHeight));
+    showAllPathsButton.setFillColor(Color(70, 70, 70));
+    showAllPathsButton.setPosition(panelX + 20, 250.f); // position inside panel
+
+    showAllPathsText.setFont(font);
+    showAllPathsText.setString("Show All Paths");
+    showAllPathsText.setCharacterSize(18);
+    showAllPathsText.setFillColor(Color::White);
+    showAllPathsText.setPosition(panelX + 25, 255.f);
+
     while (window.isOpen())
     {
         float dt = clock.restart().asSeconds();
@@ -247,7 +263,7 @@ int main()
         if (clickTimer < 0.f)
             clickTimer = 0.f;
 
-        // update dynamic positions every frame
+        // update dynamic positions
         toggleButton.setPosition(panelX + panelWidth, windowHeight / 2 - 40);
         btnIcon.setPosition(panelX + panelWidth + 10, windowHeight / 2 - 35);
 
@@ -256,34 +272,20 @@ int main()
         minIcon.setPosition(float(windowWidth - 92), 6.f);
         closeIcon.setPosition(float(windowWidth - 42), 8.f);
 
-        // set panel-local positions for boxes (so hit tests use these)
         fromBox.setPosition(panelX + 20, 90);
         toBox.setPosition(panelX + 20, 170);
 
-        // mouse pos
         Vector2i mposi = Mouse::getPosition(window);
         Vector2f mpf((float)mposi.x, (float)mposi.y);
 
-        // hover detection (set target scales)
         bool hoverFrom = panelOpen && fromBox.getGlobalBounds().contains(mpf);
         bool hoverTo = panelOpen && toBox.getGlobalBounds().contains(mpf);
 
-        // if focused, target is click scale; else if hover, target is hover scale; else 1.0
-        if (fromFocus)
-            fromTargetScale = INPUT_CLICK_SCALE;
-        else if (hoverFrom)
-            fromTargetScale = INPUT_HOVER_SCALE;
-        else
-            fromTargetScale = 1.0f;
+        fromTargetScale = fromFocus ? INPUT_CLICK_SCALE : hoverFrom ? INPUT_HOVER_SCALE
+                                                                    : 1.0f;
+        toTargetScale = toFocus ? INPUT_CLICK_SCALE : hoverTo ? INPUT_HOVER_SCALE
+                                                              : 1.0f;
 
-        if (toFocus)
-            toTargetScale = INPUT_CLICK_SCALE;
-        else if (hoverTo)
-            toTargetScale = INPUT_HOVER_SCALE;
-        else
-            toTargetScale = 1.0f;
-
-        // linear interpolation towards target
         if (INPUT_FOCUS_ANIM_TIME > 0.f)
         {
             float t = dt / INPUT_FOCUS_ANIM_TIME;
@@ -298,7 +300,6 @@ int main()
             toScale = toTargetScale;
         }
 
-        // apply scale transforms to boxes around their top-left (default origin)
         fromBox.setScale(fromScale, fromScale);
         toBox.setScale(toScale, toScale);
 
@@ -307,7 +308,6 @@ int main()
         {
             if (event.type == Event::Closed)
                 window.close();
-
             if (event.type == Event::KeyPressed && event.key.code == Keyboard::Escape)
                 window.close();
 
@@ -315,14 +315,14 @@ int main()
             {
                 Vector2f clickPos((float)event.mouseButton.x, (float)event.mouseButton.y);
 
-                // ALWAYS respond to close/minimize regardless of state
+                // Close / Minimize
                 if (closeButton.getGlobalBounds().contains(clickPos))
                 {
                     window.close();
                     clickTimer = clickCooldown;
                     continue;
                 }
-                else if (minButton.getGlobalBounds().contains(clickPos))
+                if (minButton.getGlobalBounds().contains(clickPos))
                 {
 #ifdef _WIN32
                     ShowWindow((HWND)window.getSystemHandle(), SW_MINIMIZE);
@@ -331,7 +331,6 @@ int main()
                     continue;
                 }
 
-                // reset focus by default; will set below if clicked into box
                 fromFocus = false;
                 toFocus = false;
 
@@ -347,22 +346,18 @@ int main()
                 }
                 else
                 {
+                    // Toggle panel
                     if (toggleButton.getGlobalBounds().contains(clickPos))
                     {
                         panelOpen = !panelOpen;
                         state = panelOpen ? PANEL_OPEN : PANEL_CLOSED;
-
-                        // when toggling panel, clear focus and mark randoms not generated so they regenerate next time user focuses
-                        fromFocus = false;
-                        toFocus = false;
-                        fromRandomGenerated = false;
-                        toRandomGenerated = false;
-
+                        fromFocus = toFocus = false;
+                        fromRandomGenerated = toRandomGenerated = false;
                         clickTimer = clickCooldown;
                         continue;
                     }
 
-                    // because boxes are scaled, use their global bounds (they already have updated position & scale)
+                    // Input boxes
                     if (panelOpen && fromBox.getGlobalBounds().contains(clickPos))
                     {
                         fromFocus = true;
@@ -370,7 +365,7 @@ int main()
                         clickTimer = clickCooldown;
                         continue;
                     }
-                    else if (panelOpen && toBox.getGlobalBounds().contains(clickPos))
+                    if (panelOpen && toBox.getGlobalBounds().contains(clickPos))
                     {
                         toFocus = true;
                         fromFocus = false;
@@ -378,18 +373,26 @@ int main()
                         continue;
                     }
 
-                    vector<PortNode *> vertexList;
-                    PortNode *v = g.getVertices();
-                    while (v)
+                    // Show All Paths button
+                    if (panelOpen && showAllPathsButton.getGlobalBounds().contains(clickPos))
                     {
-                        vertexList.push_back(v);
-                        v = v->next;
+                        showAllPaths = !showAllPaths;
+                        showAllPathsButton.setFillColor(showAllPaths ? Color(120, 120, 120) : Color(70, 70, 70));
+                        clickTimer = clickCooldown;
+                        continue;
                     }
 
-                    // Suggestion click handling: if suggestions are visible and user clicked one, paste it into the focused input and hide suggestions
+                    // Suggestion click handling
                     if (panelOpen && (fromFocus || toFocus))
                     {
-                        // compute current suggestions (same logic as drawing)
+                        vector<PortNode *> vertexList;
+                        PortNode *v = g.getVertices();
+                        while (v)
+                        {
+                            vertexList.push_back(v);
+                            v = v->next;
+                        }
+
                         vector<string> clickSuggestions;
                         if (fromFocus)
                         {
@@ -415,13 +418,10 @@ int main()
                                 for (auto &vtx : vertexList)
                                 {
                                     string n = vtx->name;
-                                    if (n.size() >= fromInput.size() &&
-                                        equal(fromInput.begin(), fromInput.end(), n.begin(),
-                                              [](char a, char b)
-                                              { return tolower(a) == tolower(b); }))
-                                    {
+                                    if (n.size() >= fromInput.size() && equal(fromInput.begin(), fromInput.end(), n.begin(),
+                                                                              [](char a, char b)
+                                                                              { return tolower(a) == tolower(b); }))
                                         clickSuggestions.push_back(n);
-                                    }
                                 }
                             }
                         }
@@ -449,32 +449,27 @@ int main()
                                 for (auto &vtx : vertexList)
                                 {
                                     string n = vtx->name;
-                                    if (n.size() >= toInput.size() &&
-                                        equal(toInput.begin(), toInput.end(), n.begin(),
-                                              [](char a, char b)
-                                              { return tolower(a) == tolower(b); }))
-                                    {
+                                    if (n.size() >= toInput.size() && equal(toInput.begin(), toInput.end(), n.begin(),
+                                                                            [](char a, char b)
+                                                                            { return tolower(a) == tolower(b); }))
                                         clickSuggestions.push_back(n);
-                                    }
                                 }
                             }
                         }
 
-                        float autoYClick = (fromFocus ? 130.f : toFocus ? 210.f
-                                                                        : 0.f);
+                        float autoYClick = (fromFocus ? 130.f : 210.f);
                         for (int i = 0; i < (int)clickSuggestions.size() && i < 5; i++)
                         {
                             FloatRect r(panelX + 20, autoYClick + i * 34, panelWidth - 40, 32);
                             if (r.contains(clickPos))
                             {
-                                // paste into the focused input
                                 if (fromFocus)
                                 {
                                     fromInput = clickSuggestions[i];
-                                    fromFocus = false;           // hide suggestions (Option B)
-                                    fromRandomGenerated = false; // reset so next focus regenerates
+                                    fromFocus = false;
+                                    fromRandomGenerated = false;
                                 }
-                                else if (toFocus)
+                                if (toFocus)
                                 {
                                     toInput = clickSuggestions[i];
                                     toFocus = false;
@@ -492,37 +487,27 @@ int main()
             {
                 if (fromFocus)
                 {
-                    if (event.text.unicode == 8)
-                    {
-                        if (!fromInput.empty())
-                            fromInput.pop_back();
-                    }
+                    if (event.text.unicode == 8 && !fromInput.empty())
+                        fromInput.pop_back();
                     else if (event.text.unicode < 128 && (isalnum(event.text.unicode) || event.text.unicode == ' '))
-                    {
-                        fromInput += static_cast<char>(event.text.unicode);
-                    }
+                        fromInput += (char)event.text.unicode;
                 }
-                else if (toFocus)
+                if (toFocus)
                 {
-                    if (event.text.unicode == 8)
-                    {
-                        if (!toInput.empty())
-                            toInput.pop_back();
-                    }
+                    if (event.text.unicode == 8 && !toInput.empty())
+                        toInput.pop_back();
                     else if (event.text.unicode < 128 && (isalnum(event.text.unicode) || event.text.unicode == ' '))
-                    {
-                        toInput += static_cast<char>(event.text.unicode);
-                    }
+                        toInput += (char)event.text.unicode;
                 }
             }
         }
 
-        // if focus lost, clear the generated-random flag so next focus regenerates fresh suggestions
         if (!fromFocus)
             fromRandomGenerated = false;
         if (!toFocus)
             toRandomGenerated = false;
 
+        // STARTER state
         if (state == STARTER)
         {
             if (starterClock.getElapsedTime().asSeconds() >= starterTimeout)
@@ -532,26 +517,20 @@ int main()
             window.draw(starterSprite);
             window.draw(continueButton);
             window.draw(continueText);
-
-            // draw the top-right buttons during starter as well
             window.draw(minButton);
             window.draw(closeButton);
             window.draw(minIcon);
             window.draw(closeIcon);
-
             window.display();
             continue;
         }
 
+        // Panel animation
         if (panelOpen && panelX < 0)
             panelX += slideSpeed * dt;
         if (!panelOpen && panelX > -panelWidth)
             panelX -= slideSpeed * dt;
-
-        if (panelX > 0)
-            panelX = 0;
-        if (panelX < -panelWidth)
-            panelX = -panelWidth;
+        panelX = std::clamp(panelX, -panelWidth, 0.f);
 
         window.clear(Color(20, 20, 40));
         window.draw(mapSprite);
@@ -564,16 +543,16 @@ int main()
             v = v->next;
         }
 
+        // Draw edges if showAllPaths is true
         for (auto &srcV : vertexList)
         {
             float x1 = mapX(srcV->portData.lon);
             float y1 = mapY(srcV->portData.lat);
-
             Edge *e = srcV->head;
             while (e)
             {
                 PortNode *destV = g.findVertexByName(e->dest);
-                if (destV)
+                if (destV && showAllPaths)
                 {
                     float x2 = mapX(destV->portData.lon);
                     float y2 = mapY(destV->portData.lat);
@@ -583,20 +562,14 @@ int main()
             }
         }
 
+        // Draw nodes
         for (auto &srcV : vertexList)
         {
             float x = mapX(srcV->portData.lon);
             float y = mapY(srcV->portData.lat);
 
             CircleShape point(6);
-            // point.setFillColor(Color(0, 0, 255));
-            // point.setFillColor(Color(0, 0, 150));
-            // point.setFillColor(Color(120, 130, 150));
-            // point.setFillColor(Color(80, 90, 110));
-            // point.setFillColor(Color(170, 180, 200));
-            // point.setFillColor(Color(96, 108, 122));
             point.setFillColor(Color(80, 90, 170));
-
             point.setPosition(x - 5, y - 5);
             window.draw(point);
 
@@ -605,16 +578,11 @@ int main()
             label.setString(srcV->name);
             label.setCharacterSize(14);
             label.setFillColor(Color::Black);
-            // label.setStyle(Text::Bold);
-
-            if (srcV->portData.left)
-                label.setPosition(x - 10 - label.getLocalBounds().width, y - 7);
-            else
-                label.setPosition(x + 10, y - 7);
-
+            label.setPosition(srcV->portData.left ? x - 10 - label.getLocalBounds().width : x + 10, y - 7);
             window.draw(label);
         }
 
+        // Draw panel background
         RectangleShape panel(Vector2f(panelWidth, windowHeight));
         panel.setFillColor(Color(30, 30, 30));
         panel.setPosition(panelX, 0);
@@ -623,15 +591,8 @@ int main()
         btnIcon.setString(panelOpen ? "<" : ">");
         toggleButton.setPosition(panelX + panelWidth, windowHeight / 2 - 40);
         btnIcon.setPosition(panelX + panelWidth + 10, windowHeight / 2 - 35);
-
         window.draw(toggleButton);
         window.draw(btnIcon);
-
-        // draw minimize and close buttons
-        minButton.setPosition(float(windowWidth - 100), 10.f);
-        closeButton.setPosition(float(windowWidth - 50), 10.f);
-        minIcon.setPosition(float(windowWidth - 92), 6.f);
-        closeIcon.setPosition(float(windowWidth - 42), 8.f);
 
         window.draw(minButton);
         window.draw(closeButton);
@@ -640,20 +601,8 @@ int main()
 
         if (panelOpen)
         {
-            Text fromLabel;
-            fromLabel.setFont(font);
-            fromLabel.setString("From:");
-            fromLabel.setCharacterSize(20);
-            fromLabel.setFillColor(Color::White);
-            fromLabel.setPosition(panelX + 20, 50);
-            window.draw(fromLabel);
-
-            // adjust color depending on focus
-            if (fromFocus)
-                fromBox.setFillColor(inputFocusColor);
-            else
-                fromBox.setFillColor(inputNormalColor);
-
+            // From / To input boxes and labels
+            fromBox.setFillColor(fromFocus ? inputFocusColor : inputNormalColor);
             fromBox.setPosition(panelX + 20, 90);
             fromBox.setScale(fromScale, fromScale);
             window.draw(fromBox);
@@ -665,19 +614,7 @@ int main()
             fromText.setPosition(panelX + 25, 95);
             window.draw(fromText);
 
-            Text toLabel;
-            toLabel.setFont(font);
-            toLabel.setString("To:");
-            toLabel.setCharacterSize(20);
-            toLabel.setFillColor(Color::White);
-            toLabel.setPosition(panelX + 20, 150);
-            window.draw(toLabel);
-
-            if (toFocus)
-                toBox.setFillColor(inputFocusColor);
-            else
-                toBox.setFillColor(inputNormalColor);
-
+            toBox.setFillColor(toFocus ? inputFocusColor : inputNormalColor);
             toBox.setPosition(panelX + 20, 170);
             toBox.setScale(toScale, toScale);
             window.draw(toBox);
@@ -689,98 +626,83 @@ int main()
             toText.setPosition(panelX + 25, 175);
             window.draw(toText);
 
-            // suggestions
-            vector<string> suggestions;
-            // only show suggestions when one of the inputs is focused
+            // Labels
+            Text fromLabel, toLabel;
+            fromLabel.setFont(font);
+            fromLabel.setString("From:");
+            fromLabel.setCharacterSize(20);
+            fromLabel.setFillColor(Color::White);
+            fromLabel.setPosition(panelX + 20, 50);
+            window.draw(fromLabel);
+            toLabel.setFont(font);
+            toLabel.setString("To:");
+            toLabel.setCharacterSize(20);
+            toLabel.setFillColor(Color::White);
+            toLabel.setPosition(panelX + 20, 150);
+            window.draw(toLabel);
+
+            // Show All Paths button
+            showAllPathsButton.setPosition(panelX + 20, 250.f);
+            showAllPathsText.setPosition(panelX + 25, 255.f);
+            window.draw(showAllPathsButton);
+            window.draw(showAllPathsText);
+
+            // inside the panel drawing / suggestion loop
             if (fromFocus || toFocus)
             {
-                if (fromFocus)
+                float autoY = fromFocus ? 130.f : 210.f;
+                string &inputRef = fromFocus ? fromInput : toInput; // fix
+                vector<string> &currentSuggestions = fromFocus ? randomFromSuggestions : randomToSuggestions;
+
+                if (inputRef.empty())
                 {
-                    if (fromInput.empty())
+                    if (!fromFocus ? !toRandomGenerated : !fromRandomGenerated)
                     {
-                        if (!fromRandomGenerated)
+                        vector<string> pool = validNames;
+                        if (!pool.empty())
                         {
-                            vector<string> pool = validNames;
-                            if (!pool.empty())
-                            {
-                                std::shuffle(pool.begin(), pool.end(), rng);
-                                int take = (int)min((size_t)5, pool.size());
-                                randomFromSuggestions.clear();
-                                for (int i = 0; i < take; ++i)
-                                    randomFromSuggestions.push_back(pool[i]);
-                            }
+                            std::shuffle(pool.begin(), pool.end(), rng);
+                            int take = (int)min((size_t)5, pool.size());
+                            currentSuggestions.clear();
+                            for (int i = 0; i < take; ++i)
+                                currentSuggestions.push_back(pool[i]);
+                        }
+                        if (fromFocus)
                             fromRandomGenerated = true;
-                        }
-                        suggestions = randomFromSuggestions;
-                    }
-                    else
-                    {
-                        for (auto &vtx : vertexList)
-                        {
-                            string n = vtx->name;
-                            if (n.size() >= fromInput.size() &&
-                                equal(fromInput.begin(), fromInput.end(), n.begin(),
-                                      [](char a, char b)
-                                      { return tolower(a) == tolower(b); }))
-                            {
-                                suggestions.push_back(n);
-                            }
-                        }
-                    }
-                }
-                else if (toFocus)
-                {
-                    if (toInput.empty())
-                    {
-                        if (!toRandomGenerated)
-                        {
-                            vector<string> pool = validNames;
-                            if (!pool.empty())
-                            {
-                                std::shuffle(pool.begin(), pool.end(), rng);
-                                int take = (int)min((size_t)5, pool.size());
-                                randomToSuggestions.clear();
-                                for (int i = 0; i < take; ++i)
-                                    randomToSuggestions.push_back(pool[i]);
-                            }
+                        else
                             toRandomGenerated = true;
-                        }
-                        suggestions = randomToSuggestions;
                     }
-                    else
+                }
+                else
+                {
+                    for (auto &vtx : vertexList)
                     {
-                        for (auto &vtx : vertexList)
+                        string n = vtx->name;
+                        if (n.size() >= inputRef.size() &&
+                            equal(inputRef.begin(), inputRef.end(), n.begin(),
+                                  [](char a, char b)
+                                  { return tolower(a) == tolower(b); }))
                         {
-                            string n = vtx->name;
-                            if (n.size() >= toInput.size() &&
-                                equal(toInput.begin(), toInput.end(), n.begin(),
-                                      [](char a, char b)
-                                      { return tolower(a) == tolower(b); }))
-                            {
-                                suggestions.push_back(n);
-                            }
+                            currentSuggestions.push_back(n);
                         }
                     }
                 }
-            }
 
-            float autoY = (fromFocus ? 130.f : toFocus ? 210.f
-                                                       : 0.f);
+                for (int i = 0; i < (int)currentSuggestions.size() && i < 5; i++)
+                {
+                    RectangleShape sugBox(Vector2f(panelWidth - 40, 32));
+                    sugBox.setFillColor(Color(200, 200, 200));
+                    sugBox.setPosition(panelX + 20, autoY + i * 34);
+                    window.draw(sugBox);
 
-            for (int i = 0; i < (int)suggestions.size() && i < 5; i++)
-            {
-                RectangleShape sugBox(Vector2f(panelWidth - 40, 32));
-                sugBox.setFillColor(Color(200, 200, 200));
-                sugBox.setPosition(panelX + 20, autoY + i * 34);
-                window.draw(sugBox);
-
-                Text sugText;
-                sugText.setFont(font);
-                sugText.setString(suggestions[i]);
-                sugText.setCharacterSize(18);
-                sugText.setFillColor(Color::Black);
-                sugText.setPosition(panelX + 25, autoY + 5 + i * 34);
-                window.draw(sugText);
+                    Text sugText;
+                    sugText.setFont(font);
+                    sugText.setString(currentSuggestions[i]);
+                    sugText.setCharacterSize(18);
+                    sugText.setFillColor(Color::Black);
+                    sugText.setPosition(panelX + 25, autoY + 5 + i * 34);
+                    window.draw(sugText);
+                }
             }
         }
 
