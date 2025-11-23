@@ -46,6 +46,13 @@ string trimString(string s)
     return result;
 }
 
+string to_lower(string st) {
+    for (char &c : st) {
+        c = tolower(c);
+    }
+    return st;
+}
+
 bool isNumber(const string &s)
 {
     if (s.empty())

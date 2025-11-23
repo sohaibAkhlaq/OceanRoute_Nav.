@@ -4,6 +4,10 @@
 #include <string>
 #include <fstream>
 #include <iomanip>
+#include <unordered_map>
+#include <queue>
+#include <vector>
+#include <limits>
 #include "Helper.h"
 using namespace std;
 
@@ -74,6 +78,18 @@ private:
         while (temp != nullptr)
         {
             if (temp->name == name)
+                return temp;
+            temp = temp->next;
+        }
+        return nullptr;
+    }
+    PortNode *findVertex_Lower(string name)
+    {
+
+        PortNode *temp = vertices;
+        while (temp != nullptr)
+        {
+            if (to_lower(temp->name) == to_lower(name))
                 return temp;
             temp = temp->next;
         }
@@ -297,4 +313,144 @@ public:
 
     PortNode *getVertices() { return vertices; }
     PortNode *findVertexByName(string name) { return findVertex(name); }
+    PortNode *findVertexByName_Lower(string name) { return findVertex_Lower(name); }
+
+public:
+    // ---------------- ITERATOR SUPPORT ----------------
+    class Iterator
+    {
+        PortNode *current;
+
+    public:
+        Iterator(PortNode *start) : current(start) {}
+        PortNode *operator*() const { return current; }
+        Iterator &operator++()
+        {
+            current = current->next;
+            return *this;
+        }
+        bool operator!=(const Iterator &other) const { return current != other.current; }
+    };
+
+    Iterator begin() { return Iterator(vertices); }
+    Iterator end() { return Iterator(nullptr); }
+
+    // Return vertex by index (0-based)
+    PortNode &operator[](size_t index)
+    {
+        PortNode *temp = vertices;
+        size_t i = 0;
+
+        while (temp != nullptr && i < index)
+        {
+            temp = temp->next;
+            i++;
+        }
+
+        if (!temp)
+            throw out_of_range("Graph[] index out of range");
+
+        return *temp;
+    }
+
+    // Const version
+    const PortNode &operator[](size_t index) const
+    {
+        PortNode *temp = vertices;
+        size_t i = 0;
+
+        while (temp != nullptr && i < index)
+        {
+            temp = temp->next;
+            i++;
+        }
+
+        if (!temp)
+            throw out_of_range("Graph[] index out of range");
+
+        return *temp;
+    }
+
+    // =========================================================================================================================
+    //                                        ALGORITHM
+    // =========================================================================================================================
+public:
+public: // inside Graph class
+    // Inside Graph class
+    pair<vector<pair<PortNode *, Edge *>>, vector<PortNode *>> dijkstraPath(const string &srcName, const string &destName)
+    {
+        PortNode *src = findVertex_Lower(srcName);
+        PortNode *dest = findVertex_Lower(destName);
+
+        if (!src || !dest)
+            return {}; // source or dest not found
+
+        unordered_map<PortNode *, int> dist;
+        unordered_map<PortNode *, PortNode *> prevNode;
+        unordered_map<PortNode *, Edge *> prevEdge;
+
+        for (PortNode *v = vertices; v != nullptr; v = v->next)
+            dist[v] = numeric_limits<int>::max();
+
+        dist[src] = 0;
+
+        auto cmp = [](const pair<int, PortNode *> &a, const pair<int, PortNode *> &b)
+        { return a.first > b.first; };
+        priority_queue<pair<int, PortNode *>, vector<pair<int, PortNode *>>, decltype(cmp)> pq(cmp);
+
+        pq.push({0, src});
+
+        while (!pq.empty())
+        {
+            auto [d, u] = pq.top();
+            pq.pop();
+
+            if (d > dist[u])
+                continue;
+
+            Edge *e = u->head;
+            while (e)
+            {
+                PortNode *v = findVertex_Lower(e->dest);
+                if (!v)
+                {
+                    e = e->next;
+                    continue;
+                }
+
+                int newDist = dist[u] + e->cost;
+                if (newDist < dist[v])
+                {
+                    dist[v] = newDist;
+                    prevNode[v] = u;
+                    prevEdge[v] = e;
+                    pq.push({newDist, v});
+                }
+                e = e->next;
+            }
+        }
+
+        // Reconstruct path
+        vector<PortNode *> pathNodes;
+        vector<pair<PortNode *, Edge *>> pathEdges; // store source + edge
+
+        if (dist[dest] == numeric_limits<int>::max())
+            return {pathEdges, pathNodes}; // no path
+
+        // walk backwards
+        for (PortNode *at = dest; at != nullptr; at = prevNode[at])
+            pathNodes.push_back(at);
+        reverse(pathNodes.begin(), pathNodes.end());
+
+        // Build edge list with source node
+        for (size_t i = 1; i < pathNodes.size(); i++)
+        {
+            PortNode *from = pathNodes[i - 1];
+            PortNode *to = pathNodes[i];
+            Edge *e = prevEdge[to];
+            pathEdges.push_back({from, e});
+        }
+
+        return {pathEdges, pathNodes};
+    }
 };

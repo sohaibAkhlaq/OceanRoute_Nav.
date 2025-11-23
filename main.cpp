@@ -4,8 +4,8 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include "Helper.h"
-#include "Graph.h"
+#include "H/Helper.h"
+#include "H/Graph.h"
 using namespace std;
 
 

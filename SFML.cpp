@@ -2,6 +2,7 @@
 #include <iostream>
 #include <sstream>
 #include <vector>
+#include <unordered_map>
 #include <string>
 #include <random>
 #ifndef M_PI
@@ -13,7 +14,9 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
-#include "Graph.h"
+#include "H/Graph.h"
+#include "H/Menu.h"
+#include "H/ButtonBox.h" // Your header-only class
 using namespace std;
 using namespace sf;
 
@@ -21,32 +24,32 @@ using namespace sf;
 // SFML drawing functions
 // ============================
 
-void drawArrow(RenderWindow &window, float x1, float y1, float x2, float y2, Color color = Color::Yellow)
+void drawArrow(sf::RenderWindow &window, float x1, float y1, float x2, float y2,
+               sf::Color color = sf::Color::Yellow, float thickness = 1.f)
 {
-    // Line
-    sf::Vertex line[] =
-        {
-            sf::Vertex(Vector2f(x1, y1), color),
-            sf::Vertex(Vector2f(x2, y2), color)};
-    window.draw(line, 2, Lines);
+    // Draw line (shaft) as a rectangle for thickness
+    sf::Vector2f dir(x2 - x1, y2 - y1);
+    float length = sqrt(dir.x * dir.x + dir.y * dir.y);
+    float angle = atan2(dir.y, dir.x) * 180.f / 3.14159265f;
 
-    // Arrowhead
-    const float arrowSize = 10.0f;
-    float angle = atan2(y2 - y1, x2 - x1);
+    sf::RectangleShape shaft(sf::Vector2f(length - 10.f, thickness)); // subtract arrowhead size
+    shaft.setFillColor(color);
+    shaft.setOrigin(0, thickness / 2.f);
+    shaft.setPosition(x1, y1);
+    shaft.setRotation(angle);
+    window.draw(shaft);
 
-    float x3 = x2 - arrowSize * cos(angle - M_PI / 6);
-    float y3 = y2 - arrowSize * sin(angle - M_PI / 6);
-
-    float x4 = x2 - arrowSize * cos(angle + M_PI / 6);
-    float y4 = y2 - arrowSize * sin(angle + M_PI / 6);
-
-    sf::Vertex arrowhead[] =
-        {
-            sf::Vertex(Vector2f(x2, y2), color),
-            sf::Vertex(Vector2f(x3, y3), color),
-            sf::Vertex(Vector2f(x2, y2), color),
-            sf::Vertex(Vector2f(x4, y4), color)};
-    window.draw(arrowhead, 4, Lines);
+    // Draw arrowhead as triangle
+    const float arrowSize = 10.f;
+    sf::ConvexShape arrowhead;
+    arrowhead.setPointCount(3);
+    arrowhead.setPoint(0, sf::Vector2f(0.f, 0.f));
+    arrowhead.setPoint(1, sf::Vector2f(-arrowSize, arrowSize / 2.f));
+    arrowhead.setPoint(2, sf::Vector2f(-arrowSize, -arrowSize / 2.f));
+    arrowhead.setFillColor(color);
+    arrowhead.setPosition(x2, y2);
+    arrowhead.setRotation(angle);
+    window.draw(arrowhead);
 }
 
 // ============================
@@ -81,13 +84,13 @@ int main()
     window.setVerticalSyncEnabled(false);
 
     Font font;
-    if (!font.loadFromFile("Font/font.ttf"))
+    if (!font.loadFromFile("Font/arial.ttf"))
     {
         cout << "ERROR: Could not load font.\n";
         return 0;
     }
 
-    Graph g("Routes.txt", "PortLocations.txt", "PortCharges.txt");
+    Graph g("Data/Routes.txt", "Data/PortLocations.txt", "Data/PortCharges.txt");
 
     auto mapX = [&](float lon)
     { return ((lon + 180.0f) / 360.0f) * windowWidth; };
@@ -95,9 +98,9 @@ int main()
     { return ((90.0f - lat) / 180.0f) * windowHeight; };
 
     Texture mapTexture;
-    if (!mapTexture.loadFromFile("Map2.jpg"))
+    if (!mapTexture.loadFromFile("Images/Map2.jpg"))
     {
-        cout << "ERROR: Could not load Map2.jpg\n";
+        cout << "ERROR: Could not load Images/Map2.jpg\n";
         return 0;
     }
     Sprite mapSprite(mapTexture);
@@ -106,9 +109,9 @@ int main()
 
     // starter image
     Texture starterTexture;
-    if (!starterTexture.loadFromFile("starter.jpg"))
+    if (!starterTexture.loadFromFile("Images/starter.jpg"))
     {
-        cout << "ERROR: Could not load starter.jpg\n";
+        cout << "ERROR: Could not load Images/starter.jpg\n";
         return 0;
     }
     Sprite starterSprite(starterTexture);
@@ -120,56 +123,28 @@ int main()
     bool panelOpen = false;
     float slideSpeed = 800;
 
-    RectangleShape toggleButton(Vector2f(40, 80));
-    toggleButton.setFillColor(Color(60, 60, 60));
-    toggleButton.setPosition(0, windowHeight / 2 - 40);
-
-    Text btnIcon;
-    btnIcon.setFont(font);
-    btnIcon.setString(">");
-    btnIcon.setCharacterSize(40);
-    btnIcon.setFillColor(Color::White);
-    btnIcon.setPosition(10, windowHeight / 2 - 35);
-
-    // minimize and close buttons (rectangles so you can replace with sprites later)
-    RectangleShape minButton(Vector2f(40, 40));
-    minButton.setFillColor(Color(120, 120, 120));
-    minButton.setPosition(float(windowWidth - 100), 10.f);
-
-    RectangleShape closeButton(Vector2f(40, 40));
-    closeButton.setFillColor(Color(180, 50, 50));
-    closeButton.setPosition(float(windowWidth - 50), 10.f);
-
-    Text minIcon;
-    minIcon.setFont(font);
-    minIcon.setString("-");
-    minIcon.setCharacterSize(30);
-    minIcon.setFillColor(Color::White);
-    minIcon.setPosition(float(windowWidth - 92), 6.f);
-
-    Text closeIcon;
-    closeIcon.setFont(font);
-    closeIcon.setString("X");
-    closeIcon.setCharacterSize(26);
-    closeIcon.setFillColor(Color::White);
-    closeIcon.setPosition(float(windowWidth - 42), 8.f);
+    RectangleShape toggleButton, minButton, closeButton;
+    Text btnIcon, minIcon, closeIcon;
+    // Toggle button
+    setupInputBox(toggleButton, btnIcon, font, ">",
+                  Vector2f(0, windowHeight / 2 - 40), Vector2f(40, 80),
+                  Color(60, 60, 60), Color::White, 40);
+    // Minimize button
+    setupInputBox(minButton, minIcon, font, "-",
+                  Vector2f(windowWidth - 100, 10.f), Vector2f(40, 40),
+                  Color(120, 120, 120), Color::White, 30);
+    // Close button
+    setupInputBox(closeButton, closeIcon, font, "X",
+                  Vector2f(windowWidth - 50, 10.f), Vector2f(40, 40),
+                  Color(180, 50, 50), Color::White, 26);
 
     // starter continue button (semi-transparent white, centered)
     RectangleShape continueButton(Vector2f(300.f, 70.f));
-    continueButton.setFillColor(Color(255, 255, 255, 180));
-    continueButton.setPosition(windowWidth / 2.f - 150.f, windowHeight / 2.f - 35.f);
-
     Text continueText;
-    continueText.setFont(font);
-    continueText.setString("Continue");
-    continueText.setCharacterSize(28);
-    continueText.setFillColor(Color::Black);
-    // center text inside the continue button
-    {
-        FloatRect tb = continueText.getLocalBounds();
-        continueText.setPosition(continueButton.getPosition().x + (continueButton.getSize().x - tb.width) / 2.f - tb.left,
-                                 continueButton.getPosition().y + (continueButton.getSize().y - tb.height) / 2.f - tb.top);
-    }
+    setupInputBox(continueButton, continueText, font, "Continue",
+                  Vector2f(windowWidth / 2.f - 150.f, windowHeight / 2.f - 35.f),
+                  Vector2f(300.f, 70.f),
+                  Color(255, 255, 255, 180), Color::Black, 28);
 
     sf::Clock clock;
     sf::Clock starterClock;
@@ -189,25 +164,15 @@ int main()
         }
     }
 
-    RectangleShape fromBox(Vector2f(panelWidth - 40, 40));
-    fromBox.setFillColor(Color(50, 50, 50));
-    fromBox.setPosition(20, 100);
+    RectangleShape fromBox, toBox;
+    Text fromText, toText;
+    setupInputBox(fromBox, fromText, font, "",
+                  Vector2f(20, 100), Vector2f(panelWidth - 40, 40),
+                  Color(50, 50, 50), Color::White, 20);
 
-    RectangleShape toBox(Vector2f(panelWidth - 40, 40));
-    toBox.setFillColor(Color(50, 50, 50));
-    toBox.setPosition(20, 180);
-
-    Text fromText;
-    fromText.setFont(font);
-    fromText.setCharacterSize(20);
-    fromText.setFillColor(Color::White);
-    fromText.setPosition(25, 105);
-
-    Text toText;
-    toText.setFont(font);
-    toText.setCharacterSize(20);
-    toText.setFillColor(Color::White);
-    toText.setPosition(25, 185);
+    setupInputBox(toBox, toText, font, "",
+                  Vector2f(20, 200), Vector2f(panelWidth - 40, 40),
+                  Color(50, 50, 50), Color::White, 20);
 
     bool fromFocus = false;
     bool toFocus = false;
@@ -245,15 +210,9 @@ int main()
     const float panelButtonHeight = 40.f; // Height of buttons inside the panel
 
     // Button for Show All Paths
-    showAllPathsButton.setSize(Vector2f(panelWidth - 40, panelButtonHeight));
-    showAllPathsButton.setFillColor(Color(70, 70, 70));
-    showAllPathsButton.setPosition(panelX + 20, 250.f); // position inside panel
-
-    showAllPathsText.setFont(font);
-    showAllPathsText.setString("Show All Paths");
-    showAllPathsText.setCharacterSize(18);
-    showAllPathsText.setFillColor(Color::White);
-    showAllPathsText.setPosition(panelX + 25, 255.f);
+    setupInputBox(showAllPathsButton, showAllPathsText, font, "Continue",
+                  Vector2f(panelX + 20, windowHeight - 60), Vector2f(panelWidth - 40, panelButtonHeight),
+                  Color(70, 70, 70), Color::White, 18);
 
     while (window.isOpen())
     {
@@ -264,16 +223,17 @@ int main()
             clickTimer = 0.f;
 
         // update dynamic positions
-        toggleButton.setPosition(panelX + panelWidth, windowHeight / 2 - 40);
-        btnIcon.setPosition(panelX + panelWidth + 10, windowHeight / 2 - 35);
+        setupInputBox(toggleButton, btnIcon, font, ">",
+                      Vector2f(panelX + panelWidth, windowHeight / 2 - 40), Vector2f(40, 80),
+                      Color(60, 60, 60), Color::White, 40);
 
-        minButton.setPosition(float(windowWidth - 100), 10.f);
-        closeButton.setPosition(float(windowWidth - 50), 10.f);
-        minIcon.setPosition(float(windowWidth - 92), 6.f);
-        closeIcon.setPosition(float(windowWidth - 42), 8.f);
+        setupInputBox(fromBox, fromText, font, fromInput,
+                      Vector2f(panelX + 20, 90), Vector2f(panelWidth - 40, 40),
+                      Color(50, 50, 50), Color::White, 20);
 
-        fromBox.setPosition(panelX + 20, 90);
-        toBox.setPosition(panelX + 20, 170);
+        setupInputBox(toBox, toText, font, toInput,
+                      Vector2f(panelX + 20, 190), Vector2f(panelWidth - 40, 40),
+                      Color(50, 50, 50), Color::White, 20);
 
         Vector2i mposi = Mouse::getPosition(window);
         Vector2f mpf((float)mposi.x, (float)mposi.y);
@@ -281,27 +241,8 @@ int main()
         bool hoverFrom = panelOpen && fromBox.getGlobalBounds().contains(mpf);
         bool hoverTo = panelOpen && toBox.getGlobalBounds().contains(mpf);
 
-        fromTargetScale = fromFocus ? INPUT_CLICK_SCALE : hoverFrom ? INPUT_HOVER_SCALE
-                                                                    : 1.0f;
-        toTargetScale = toFocus ? INPUT_CLICK_SCALE : hoverTo ? INPUT_HOVER_SCALE
-                                                              : 1.0f;
-
-        if (INPUT_FOCUS_ANIM_TIME > 0.f)
-        {
-            float t = dt / INPUT_FOCUS_ANIM_TIME;
-            if (t > 1.f)
-                t = 1.f;
-            fromScale += (fromTargetScale - fromScale) * t;
-            toScale += (toTargetScale - toScale) * t;
-        }
-        else
-        {
-            fromScale = fromTargetScale;
-            toScale = toTargetScale;
-        }
-
-        fromBox.setScale(fromScale, fromScale);
-        toBox.setScale(toScale, toScale);
+        fromTargetScale = fromFocus ? INPUT_CLICK_SCALE : (hoverFrom ? INPUT_HOVER_SCALE : 1.0f);
+        toTargetScale = toFocus ? INPUT_CLICK_SCALE : (hoverTo ? INPUT_HOVER_SCALE : 1.0f);
 
         Event event;
         while (window.pollEvent(event))
@@ -331,6 +272,7 @@ int main()
                     continue;
                 }
 
+                // default: clear focus, will be re-enabled below if click matches an input
                 fromFocus = false;
                 toFocus = false;
 
@@ -357,7 +299,7 @@ int main()
                         continue;
                     }
 
-                    // Input boxes
+                    // Input boxes (give focus)
                     if (panelOpen && fromBox.getGlobalBounds().contains(clickPos))
                     {
                         fromFocus = true;
@@ -377,104 +319,38 @@ int main()
                     if (panelOpen && showAllPathsButton.getGlobalBounds().contains(clickPos))
                     {
                         showAllPaths = !showAllPaths;
-                        showAllPathsButton.setFillColor(showAllPaths ? Color(120, 120, 120) : Color(70, 70, 70));
+                        // showAllPathsButton.setFillColor(showAllPaths ? Color(120, 120, 120) : Color(70, 70, 70));
                         clickTimer = clickCooldown;
                         continue;
                     }
 
-                    // Suggestion click handling
+                    // ------------------------------------------------------------
+                    // NEW SUGGESTION CLICK HANDLER (RIGHT SIDE PANEL)
+                    // ------------------------------------------------------------
                     if (panelOpen && (fromFocus || toFocus))
                     {
-                        vector<PortNode *> vertexList;
-                        PortNode *v = g.getVertices();
-                        while (v)
-                        {
-                            vertexList.push_back(v);
-                            v = v->next;
-                        }
+                        // Suggestion positions aligned with drawing code
+                        float autoY = fromFocus ? 90.f : 170.f;
+                        float autoX = panelX + 250.f;
 
-                        vector<string> clickSuggestions;
-                        if (fromFocus)
-                        {
-                            if (fromInput.empty())
-                            {
-                                if (!fromRandomGenerated)
-                                {
-                                    vector<string> pool = validNames;
-                                    if (!pool.empty())
-                                    {
-                                        std::shuffle(pool.begin(), pool.end(), rng);
-                                        int take = (int)min((size_t)5, pool.size());
-                                        randomFromSuggestions.clear();
-                                        for (int i = 0; i < take; ++i)
-                                            randomFromSuggestions.push_back(pool[i]);
-                                    }
-                                    fromRandomGenerated = true;
-                                }
-                                clickSuggestions = randomFromSuggestions;
-                            }
-                            else
-                            {
-                                for (auto &vtx : vertexList)
-                                {
-                                    string n = vtx->name;
-                                    if (n.size() >= fromInput.size() && equal(fromInput.begin(), fromInput.end(), n.begin(),
-                                                                              [](char a, char b)
-                                                                              { return tolower(a) == tolower(b); }))
-                                        clickSuggestions.push_back(n);
-                                }
-                            }
-                        }
-                        else if (toFocus)
-                        {
-                            if (toInput.empty())
-                            {
-                                if (!toRandomGenerated)
-                                {
-                                    vector<string> pool = validNames;
-                                    if (!pool.empty())
-                                    {
-                                        std::shuffle(pool.begin(), pool.end(), rng);
-                                        int take = (int)min((size_t)5, pool.size());
-                                        randomToSuggestions.clear();
-                                        for (int i = 0; i < take; ++i)
-                                            randomToSuggestions.push_back(pool[i]);
-                                    }
-                                    toRandomGenerated = true;
-                                }
-                                clickSuggestions = randomToSuggestions;
-                            }
-                            else
-                            {
-                                for (auto &vtx : vertexList)
-                                {
-                                    string n = vtx->name;
-                                    if (n.size() >= toInput.size() && equal(toInput.begin(), toInput.end(), n.begin(),
-                                                                            [](char a, char b)
-                                                                            { return tolower(a) == tolower(b); }))
-                                        clickSuggestions.push_back(n);
-                                }
-                            }
-                        }
+                        // Pick correct suggestions list
+                        vector<string> &currentSuggestions = fromFocus ? randomFromSuggestions : randomToSuggestions;
 
-                        float autoYClick = (fromFocus ? 130.f : 210.f);
-                        for (int i = 0; i < (int)clickSuggestions.size() && i < 5; i++)
+                        for (int i = 0; i < (int)currentSuggestions.size() && i < 5; i++)
                         {
-                            FloatRect r(panelX + 20, autoYClick + i * 34, panelWidth - 40, 32);
-                            if (r.contains(clickPos))
+                            FloatRect r(autoX, autoY + i * 34, 150, 32);
+                            if (r.contains(clickPos.x, clickPos.y))
                             {
                                 if (fromFocus)
-                                {
-                                    fromInput = clickSuggestions[i];
-                                    fromFocus = false;
-                                    fromRandomGenerated = false;
-                                }
-                                if (toFocus)
-                                {
-                                    toInput = clickSuggestions[i];
-                                    toFocus = false;
-                                    toRandomGenerated = false;
-                                }
+                                    fromInput = currentSuggestions[i];
+                                else
+                                    toInput = currentSuggestions[i];
+
+                                // Lock selection & reset random state
+                                fromFocus = toFocus = false;
+                                fromRandomGenerated = false;
+                                toRandomGenerated = false;
+
                                 clickTimer = clickCooldown;
                                 break;
                             }
@@ -500,7 +376,7 @@ int main()
                         toInput += (char)event.text.unicode;
                 }
             }
-        }
+        } // end pollEvent
 
         if (!fromFocus)
             fromRandomGenerated = false;
@@ -532,19 +408,13 @@ int main()
             panelX -= slideSpeed * dt;
         panelX = std::clamp(panelX, -panelWidth, 0.f);
 
+        // ---- Drawing ----
         window.clear(Color(20, 20, 40));
         window.draw(mapSprite);
 
-        vector<PortNode *> vertexList;
-        PortNode *v = g.getVertices();
-        while (v)
-        {
-            vertexList.push_back(v);
-            v = v->next;
-        }
-
+        // =========================================================================================================================
         // Draw edges if showAllPaths is true
-        for (auto &srcV : vertexList)
+        for (PortNode *srcV : g)
         {
             float x1 = mapX(srcV->portData.lon);
             float y1 = mapY(srcV->portData.lat);
@@ -563,13 +433,16 @@ int main()
         }
 
         // Draw nodes
-        for (auto &srcV : vertexList)
+        for (auto srcV : g)
         {
             float x = mapX(srcV->portData.lon);
             float y = mapY(srcV->portData.lat);
 
             CircleShape point(6);
-            point.setFillColor(Color(80, 90, 170));
+            if (to_lower(srcV->name) == to_lower(fromInput) || to_lower(srcV->name) == to_lower(toInput))
+                point.setFillColor(Color::Red);
+            else
+                point.setFillColor(Color(80, 90, 170));
             point.setPosition(x - 5, y - 5);
             window.draw(point);
 
@@ -582,15 +455,56 @@ int main()
             window.draw(label);
         }
 
+        if (g.findVertexByName_Lower(fromInput) && g.findVertexByName_Lower(toInput))
+        {
+            auto [pathEdges, pathNodes] = g.dijkstraPath(fromInput, toInput);
+
+            // Draw edges in path (bold / highlighted)
+            for (auto &[fromNode, e] : pathEdges)
+            {
+                PortNode *toNode = g.findVertexByName(e->dest);
+                if (!toNode)
+                    continue;
+
+                float x1 = mapX(fromNode->portData.lon);
+                float y1 = mapY(fromNode->portData.lat);
+                float x2 = mapX(toNode->portData.lon);
+                float y2 = mapY(toNode->portData.lat);
+
+                drawArrow(window, x1, y1, x2, y2, Color::Yellow, 2.f); // bold yellow
+                // cout << "Edge: " << fromNode->name << " -> " << toNode->name << "\n";
+            }
+
+            // Draw nodes in path (highlighted)
+            for (PortNode *v : pathNodes)
+            {
+                float x = mapX(v->portData.lon);
+                float y = mapY(v->portData.lat);
+
+                CircleShape point(7); // bigger circle for path
+                if (to_lower(v->name) == to_lower(fromInput) || to_lower(v->name) == to_lower(toInput))
+                    point.setFillColor(Color::Red);
+                else
+                    point.setFillColor(Color::Yellow);
+
+                point.setPosition(x - 7, y - 7);
+                window.draw(point);
+                // cout << "Node: " << v->name << "\n";
+            }
+        }
+
+        // =============================================================================================================================
         // Draw panel background
         RectangleShape panel(Vector2f(panelWidth, windowHeight));
         panel.setFillColor(Color(30, 30, 30));
         panel.setPosition(panelX, 0);
         window.draw(panel);
 
-        btnIcon.setString(panelOpen ? "<" : ">");
-        toggleButton.setPosition(panelX + panelWidth, windowHeight / 2 - 40);
-        btnIcon.setPosition(panelX + panelWidth + 10, windowHeight / 2 - 35);
+        // Draw toggle & window control buttons
+        setupInputBox(toggleButton, btnIcon, font, panelOpen ? "<" : ">",
+                      Vector2f(panelX + panelWidth, windowHeight / 2 - 40), Vector2f(40, 80),
+                      Color(60, 60, 60), Color::White, 40);
+
         window.draw(toggleButton);
         window.draw(btnIcon);
 
@@ -599,31 +513,40 @@ int main()
         window.draw(minIcon);
         window.draw(closeIcon);
 
+        // --------------------
+        // PANEL CONTENT (inputs, labels, buttons)
+        // --------------------
         if (panelOpen)
         {
-            // From / To input boxes and labels
-            fromBox.setFillColor(fromFocus ? inputFocusColor : inputNormalColor);
-            fromBox.setPosition(panelX + 20, 90);
-            fromBox.setScale(fromScale, fromScale);
+            Color validNormalColor = Color(30, 136, 229); // Professional blue
+            Color validFocusColor = Color(66, 165, 245);  // Lighter blue
+
+            // FROM box
+            Color FromColor;
+            if (g.findVertexByName_Lower(fromInput))
+                FromColor = fromFocus ? validFocusColor : validNormalColor;
+            else
+                FromColor = fromFocus ? inputFocusColor : inputNormalColor;
+
+            setupInputBox(fromBox, fromText, font, fromInput,
+                          Vector2f(panelX + 20, 90), Vector2f(panelWidth - 40, 40),
+                          FromColor, Color::White, 20);
+
             window.draw(fromBox);
 
-            fromText.setFont(font);
-            fromText.setString(fromInput);
-            fromText.setCharacterSize(18);
-            fromText.setFillColor(Color::White);
-            fromText.setPosition(panelX + 25, 95);
             window.draw(fromText);
 
-            toBox.setFillColor(toFocus ? inputFocusColor : inputNormalColor);
-            toBox.setPosition(panelX + 20, 170);
-            toBox.setScale(toScale, toScale);
-            window.draw(toBox);
+            // TO BOX
+            Color ToColor;
+            if (g.findVertexByName_Lower(toInput))
+                ToColor = (toFocus ? validFocusColor : validNormalColor);
+            else
+                ToColor = (toFocus ? inputFocusColor : inputNormalColor);
 
-            toText.setFont(font);
-            toText.setString(toInput);
-            toText.setCharacterSize(18);
-            toText.setFillColor(Color::White);
-            toText.setPosition(panelX + 25, 175);
+            setupInputBox(toBox, toText, font, toInput,
+                          Vector2f(panelX + 20, 190), Vector2f(panelWidth - 40, 40),
+                          ToColor, Color::White, 20);
+            window.draw(toBox);
             window.draw(toText);
 
             // Labels
@@ -634,6 +557,7 @@ int main()
             fromLabel.setFillColor(Color::White);
             fromLabel.setPosition(panelX + 20, 50);
             window.draw(fromLabel);
+
             toLabel.setFont(font);
             toLabel.setString("To:");
             toLabel.setCharacterSize(20);
@@ -641,73 +565,78 @@ int main()
             toLabel.setPosition(panelX + 20, 150);
             window.draw(toLabel);
 
-            // Show All Paths button
-            showAllPathsButton.setPosition(panelX + 20, 250.f);
-            showAllPathsText.setPosition(panelX + 25, 255.f);
+            setupInputBox(showAllPathsButton, showAllPathsText, font, "Show all Paths",
+                          Vector2f(panelX + 20, windowHeight - 60), Vector2f(panelWidth - 40, panelButtonHeight),
+                          showAllPaths ? Color(120, 120, 120) : Color(70, 70, 70), Color::White, 18);
             window.draw(showAllPathsButton);
             window.draw(showAllPathsText);
+        } // end panelOpen
 
-            // inside the panel drawing / suggestion loop
-            if (fromFocus || toFocus)
+        // --------------------
+        // SUGGESTIONS (draw when focused)
+        // --------------------
+        if (fromFocus || toFocus)
+        {
+            float autoY = fromFocus ? 90.f : 170.f; // match input y
+            float autoX = panelX + 250.f;           // right side of input
+
+            string &inputRef = fromFocus ? fromInput : toInput;
+            vector<string> &currentSuggestions = fromFocus ? randomFromSuggestions : randomToSuggestions;
+
+            // Recompute suggestions each frame (keeps them in sync)
+            currentSuggestions.clear();
+
+            if (inputRef.empty())
             {
-                float autoY = fromFocus ? 130.f : 210.f;
-                string &inputRef = fromFocus ? fromInput : toInput; // fix
-                vector<string> &currentSuggestions = fromFocus ? randomFromSuggestions : randomToSuggestions;
-
-                if (inputRef.empty())
+                // random picks
+                vector<string> pool = validNames;
+                std::shuffle(pool.begin(), pool.end(), rng);
+                int take = (int)min((size_t)5, pool.size());
+                for (int i = 0; i < take; ++i)
+                    currentSuggestions.push_back(pool[i]);
+            }
+            else
+            {
+                // case-insensitive prefix match
+                for (auto &v : validNames)
                 {
-                    if (!fromFocus ? !toRandomGenerated : !fromRandomGenerated)
+                    if (v.size() >= inputRef.size())
                     {
-                        vector<string> pool = validNames;
-                        if (!pool.empty())
+                        bool match = true;
+                        for (size_t k = 0; k < inputRef.size(); ++k)
                         {
-                            std::shuffle(pool.begin(), pool.end(), rng);
-                            int take = (int)min((size_t)5, pool.size());
-                            currentSuggestions.clear();
-                            for (int i = 0; i < take; ++i)
-                                currentSuggestions.push_back(pool[i]);
+                            if (tolower(v[k]) != tolower(inputRef[k]))
+                            {
+                                match = false;
+                                break;
+                            }
                         }
-                        if (fromFocus)
-                            fromRandomGenerated = true;
-                        else
-                            toRandomGenerated = true;
+                        if (match)
+                            currentSuggestions.push_back(v);
                     }
                 }
-                else
-                {
-                    for (auto &vtx : vertexList)
-                    {
-                        string n = vtx->name;
-                        if (n.size() >= inputRef.size() &&
-                            equal(inputRef.begin(), inputRef.end(), n.begin(),
-                                  [](char a, char b)
-                                  { return tolower(a) == tolower(b); }))
-                        {
-                            currentSuggestions.push_back(n);
-                        }
-                    }
-                }
+            }
 
-                for (int i = 0; i < (int)currentSuggestions.size() && i < 5; i++)
-                {
-                    RectangleShape sugBox(Vector2f(panelWidth - 40, 32));
-                    sugBox.setFillColor(Color(200, 200, 200));
-                    sugBox.setPosition(panelX + 20, autoY + i * 34);
-                    window.draw(sugBox);
+            // Draw suggestion boxes (on the RIGHT)
+            for (int i = 0; i < (int)currentSuggestions.size() && i < 5; i++)
+            {
+                RectangleShape box(Vector2f(150, 32));
+                box.setFillColor(Color(200, 200, 200));
+                box.setPosition(autoX, autoY + i * 34);
+                window.draw(box);
 
-                    Text sugText;
-                    sugText.setFont(font);
-                    sugText.setString(currentSuggestions[i]);
-                    sugText.setCharacterSize(18);
-                    sugText.setFillColor(Color::Black);
-                    sugText.setPosition(panelX + 25, autoY + 5 + i * 34);
-                    window.draw(sugText);
-                }
+                Text txt;
+                txt.setFont(font);
+                txt.setString(currentSuggestions[i]);
+                txt.setCharacterSize(18);
+                txt.setFillColor(Color::Black);
+                txt.setPosition(autoX + 5, autoY + 5 + i * 34);
+                window.draw(txt);
             }
         }
 
         window.display();
-    }
+    } // end while
 
     return 0;
 }
