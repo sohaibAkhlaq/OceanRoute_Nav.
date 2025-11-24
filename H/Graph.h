@@ -7,9 +7,28 @@
 #include <unordered_map>
 #include <queue>
 #include <vector>
+#include <functional>
 #include <limits>
 #include "Helper.h"
 using namespace std;
+
+    long long toMinutes(const string &date, const string &time)
+    {
+        int d, m, y, hh, mm;
+        char c1, c2, c3;
+
+        stringstream ss(date + " " + time);
+        ss >> d >> c1 >> m >> c2 >> y >> hh >> c3 >> mm;
+
+        tm t = {};
+        t.tm_mday = d;
+        t.tm_mon = m - 1;
+        t.tm_year = y - 1900;
+        t.tm_hour = hh;
+        t.tm_min = mm;
+
+        return mktime(&t) / 60;
+    }
 
 class Edge
 {
@@ -374,83 +393,171 @@ public:
     // =========================================================================================================================
     //                                        ALGORITHM
     // =========================================================================================================================
-public:
+// private:
+    // Convert "22/12/2024" and "09:00" → minutes since epoch
+
 public: // inside Graph class
-    // Inside Graph class
-    pair<vector<pair<PortNode *, Edge *>>, vector<PortNode *>> dijkstraPath(const string &srcName, const string &destName)
+        // Inside Graph class
+    pair<vector<pair<PortNode *, Edge *>>, vector<PortNode *>>
+    dijkstraPath(const string &srcName, const string &destName)
     {
+        cout << "Called dijkstraPath()\n";
+
         PortNode *src = findVertex_Lower(srcName);
         PortNode *dest = findVertex_Lower(destName);
 
         if (!src || !dest)
             return {}; // source or dest not found
 
-        unordered_map<PortNode *, int> dist;
-        unordered_map<PortNode *, PortNode *> prevNode;
-        unordered_map<PortNode *, Edge *> prevEdge;
+        struct NodeState
+        {
+            PortNode *node;
+            int cost;
+            long long arrivalTime;
+            vector<PortNode *> pathNodes;
+            vector<pair<PortNode *, Edge *>> pathEdges;
+        };
 
-        for (PortNode *v = vertices; v != nullptr; v = v->next)
-            dist[v] = numeric_limits<int>::max();
+        auto cmp = [](const NodeState &a, const NodeState &b)
+        {
+            return a.cost > b.cost; // min-heap by cost
+        };
 
-        dist[src] = 0;
+        priority_queue<NodeState, vector<NodeState>, decltype(cmp)> pq(cmp);
 
-        auto cmp = [](const pair<int, PortNode *> &a, const pair<int, PortNode *> &b)
-        { return a.first > b.first; };
-        priority_queue<pair<int, PortNode *>, vector<pair<int, PortNode *>>, decltype(cmp)> pq(cmp);
+        // Initial state
+        pq.push({src, 0, 0, {src}, {}});
 
-        pq.push({0, src});
+        NodeState bestPath;
+        bool found = false;
+        unordered_map<PortNode *, int> bestCost;
 
         while (!pq.empty())
         {
-            auto [d, u] = pq.top();
+            NodeState cur = pq.top();
             pq.pop();
 
-            if (d > dist[u])
+            // Already have a cheaper cost to this node
+            if (bestCost.count(cur.node) && cur.cost > bestCost[cur.node])
                 continue;
 
-            Edge *e = u->head;
-            while (e)
+            bestCost[cur.node] = cur.cost;
+
+            if (cur.node == dest)
+            {
+                bestPath = cur;
+                found = true;
+                break; // stop at first valid shortest cost
+            }
+
+            for (Edge *e = cur.node->head; e != nullptr; e = e->next)
             {
                 PortNode *v = findVertex_Lower(e->dest);
                 if (!v)
-                {
-                    e = e->next;
                     continue;
-                }
 
-                int newDist = dist[u] + e->cost;
-                if (newDist < dist[v])
-                {
-                    dist[v] = newDist;
-                    prevNode[v] = u;
-                    prevEdge[v] = e;
-                    pq.push({newDist, v});
-                }
-                e = e->next;
+                // Compute departure/arrival in minutes
+                long long departTime = toMinutes(e->date, e->dep);
+                long long arrivalTime = toMinutes(e->date, e->arr);
+
+                // Validate date/time
+                if (departTime < cur.arrivalTime)
+                    continue;
+
+                NodeState nextState;
+                nextState.node = v;
+                nextState.cost = cur.cost + e->cost;
+                nextState.arrivalTime = arrivalTime;
+                nextState.pathNodes = cur.pathNodes;
+                nextState.pathNodes.push_back(v);
+                nextState.pathEdges = cur.pathEdges;
+                nextState.pathEdges.push_back({cur.node, e});
+
+                pq.push(nextState);
             }
         }
 
-        // Reconstruct path
-        vector<PortNode *> pathNodes;
-        vector<pair<PortNode *, Edge *>> pathEdges; // store source + edge
+        if (!found)
+            return {}; // no valid path
 
-        if (dist[dest] == numeric_limits<int>::max())
-            return {pathEdges, pathNodes}; // no path
+        return {bestPath.pathEdges, bestPath.pathNodes};
+    }
 
-        // walk backwards
-        for (PortNode *at = dest; at != nullptr; at = prevNode[at])
-            pathNodes.push_back(at);
-        reverse(pathNodes.begin(), pathNodes.end());
+    vector<
+        pair<
+            vector<pair<PortNode *, Edge *>>,
+            vector<PortNode *>>>
+    allValidPaths(const string &srcName, const string &destName)
+    {
+        cout << "Called allValidPath()\n";
+        PortNode *src = findVertex_Lower(srcName);
+        PortNode *dest = findVertex_Lower(destName);
 
-        // Build edge list with source node
-        for (size_t i = 1; i < pathNodes.size(); i++)
+        vector<
+            pair<
+                vector<pair<PortNode *, Edge *>>,
+                vector<PortNode *>>>
+            result;
+
+        if (!src || !dest)
+            return result;
+
+        unordered_map<PortNode *, bool> visited;
+
+        // DFS recursion
+        function<void(PortNode *, long long,
+                      vector<PortNode *> &,
+                      vector<pair<PortNode *, Edge *>> &)>
+            dfs;
+
+        dfs = [&](PortNode *u, long long lastArrival,
+                  vector<PortNode *> &pathNodes,
+                  vector<pair<PortNode *, Edge *>> &pathEdges)
         {
-            PortNode *from = pathNodes[i - 1];
-            PortNode *to = pathNodes[i];
-            Edge *e = prevEdge[to];
-            pathEdges.push_back({from, e});
-        }
+            // reached destination
+            if (u == dest)
+            {
+                result.push_back({pathEdges, pathNodes});
+                return;
+            }
 
-        return {pathEdges, pathNodes};
+            visited[u] = true;
+
+            for (Edge *e = u->head; e != nullptr; e = e->next)
+            {
+                PortNode *v = findVertex_Lower(e->dest);
+                if (!v || visited[v])
+                    continue;
+
+                // compute departure/arrival times of this route
+                long long departTime = toMinutes(e->date, e->dep);
+                long long arrivalTime = toMinutes(e->date, e->arr);
+
+                // Validation: next departure MUST be >= last arrival
+                if (departTime < lastArrival)
+                    continue;
+
+                // push
+                pathNodes.push_back(v);
+                pathEdges.push_back({u, e});
+
+                dfs(v, arrivalTime, pathNodes, pathEdges);
+
+                // pop
+                pathNodes.pop_back();
+                pathEdges.pop_back();
+            }
+
+            visited[u] = false;
+        };
+
+        vector<PortNode *> pathNodes;
+        vector<pair<PortNode *, Edge *>> pathEdges;
+
+        pathNodes.push_back(src);
+
+        dfs(src, 0, pathNodes, pathEdges);
+
+        return result;
     }
 };
