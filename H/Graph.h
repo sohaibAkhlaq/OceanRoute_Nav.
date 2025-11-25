@@ -12,23 +12,23 @@
 #include "Helper.h"
 using namespace std;
 
-    long long toMinutes(const string &date, const string &time)
-    {
-        int d, m, y, hh, mm;
-        char c1, c2, c3;
+long long toMinutes(const string &date, const string &time)
+{
+    int d, m, y, hh, mm;
+    char c1, c2, c3;
 
-        stringstream ss(date + " " + time);
-        ss >> d >> c1 >> m >> c2 >> y >> hh >> c3 >> mm;
+    stringstream ss(date + " " + time);
+    ss >> d >> c1 >> m >> c2 >> y >> hh >> c3 >> mm;
 
-        tm t = {};
-        t.tm_mday = d;
-        t.tm_mon = m - 1;
-        t.tm_year = y - 1900;
-        t.tm_hour = hh;
-        t.tm_min = mm;
+    tm t = {};
+    t.tm_mday = d;
+    t.tm_mon = m - 1;
+    t.tm_year = y - 1900;
+    t.tm_hour = hh;
+    t.tm_min = mm;
 
-        return mktime(&t) / 60;
-    }
+    return mktime(&t) / 60;
+}
 
 class Edge
 {
@@ -393,13 +393,13 @@ public:
     // =========================================================================================================================
     //                                        ALGORITHM
     // =========================================================================================================================
-// private:
+    // private:
     // Convert "22/12/2024" and "09:00" → minutes since epoch
 
 public: // inside Graph class
         // Inside Graph class
     pair<vector<pair<PortNode *, Edge *>>, vector<PortNode *>>
-    dijkstraPath(const string &srcName, const string &destName)
+    dijkstraPath(const string &srcName, const string &destName, const string &startDateStr)
     {
         cout << "Called dijkstraPath()\n";
 
@@ -407,7 +407,10 @@ public: // inside Graph class
         PortNode *dest = findVertex_Lower(destName);
 
         if (!src || !dest)
-            return {}; // source or dest not found
+            return {};
+
+        long long startDateMinutes = toMinutes(startDateStr, "00:00");
+        // Convert user start date → minutes since epoch
 
         struct NodeState
         {
@@ -420,13 +423,12 @@ public: // inside Graph class
 
         auto cmp = [](const NodeState &a, const NodeState &b)
         {
-            return a.cost > b.cost; // min-heap by cost
+            return a.cost > b.cost;
         };
 
         priority_queue<NodeState, vector<NodeState>, decltype(cmp)> pq(cmp);
 
-        // Initial state
-        pq.push({src, 0, 0, {src}, {}});
+        pq.push({src, 0, startDateMinutes, {src}, {}});
 
         NodeState bestPath;
         bool found = false;
@@ -437,7 +439,6 @@ public: // inside Graph class
             NodeState cur = pq.top();
             pq.pop();
 
-            // Already have a cheaper cost to this node
             if (bestCost.count(cur.node) && cur.cost > bestCost[cur.node])
                 continue;
 
@@ -447,7 +448,7 @@ public: // inside Graph class
             {
                 bestPath = cur;
                 found = true;
-                break; // stop at first valid shortest cost
+                break;
             }
 
             for (Edge *e = cur.node->head; e != nullptr; e = e->next)
@@ -456,11 +457,14 @@ public: // inside Graph class
                 if (!v)
                     continue;
 
-                // Compute departure/arrival in minutes
                 long long departTime = toMinutes(e->date, e->dep);
                 long long arrivalTime = toMinutes(e->date, e->arr);
 
-                // Validate date/time
+                // REJECT if edge is before user-specified date
+                if (departTime < startDateMinutes)
+                    continue;
+
+                // REJECT if departure is before the current arrival
                 if (departTime < cur.arrivalTime)
                     continue;
 
@@ -478,18 +482,18 @@ public: // inside Graph class
         }
 
         if (!found)
-            return {}; // no valid path
+            return {};
 
         return {bestPath.pathEdges, bestPath.pathNodes};
     }
 
-    vector<
-        pair<
-            vector<pair<PortNode *, Edge *>>,
-            vector<PortNode *>>>
-    allValidPaths(const string &srcName, const string &destName)
+    vector<pair<
+        vector<pair<PortNode *, Edge *>>,
+        vector<PortNode *>>>
+    allValidPaths(const string &srcName, const string &destName, const string &startDateStr)
     {
-        cout << "Called allValidPath()\n";
+        cout << "Called allValidPaths()\n";
+
         PortNode *src = findVertex_Lower(srcName);
         PortNode *dest = findVertex_Lower(destName);
 
@@ -502,9 +506,10 @@ public: // inside Graph class
         if (!src || !dest)
             return result;
 
+        long long startDateMinutes = toMinutes(startDateStr, "00:00");
+
         unordered_map<PortNode *, bool> visited;
 
-        // DFS recursion
         function<void(PortNode *, long long,
                       vector<PortNode *> &,
                       vector<pair<PortNode *, Edge *>> &)>
@@ -514,7 +519,6 @@ public: // inside Graph class
                   vector<PortNode *> &pathNodes,
                   vector<pair<PortNode *, Edge *>> &pathEdges)
         {
-            // reached destination
             if (u == dest)
             {
                 result.push_back({pathEdges, pathNodes});
@@ -529,21 +533,22 @@ public: // inside Graph class
                 if (!v || visited[v])
                     continue;
 
-                // compute departure/arrival times of this route
                 long long departTime = toMinutes(e->date, e->dep);
                 long long arrivalTime = toMinutes(e->date, e->arr);
 
-                // Validation: next departure MUST be >= last arrival
+                // Reject edges earlier than user start date
+                if (departTime < startDateMinutes)
+                    continue;
+
+                // Reject edges earlier than previous arrival
                 if (departTime < lastArrival)
                     continue;
 
-                // push
                 pathNodes.push_back(v);
                 pathEdges.push_back({u, e});
 
                 dfs(v, arrivalTime, pathNodes, pathEdges);
 
-                // pop
                 pathNodes.pop_back();
                 pathEdges.pop_back();
             }
@@ -556,7 +561,7 @@ public: // inside Graph class
 
         pathNodes.push_back(src);
 
-        dfs(src, 0, pathNodes, pathEdges);
+        dfs(src, startDateMinutes, pathNodes, pathEdges);
 
         return result;
     }

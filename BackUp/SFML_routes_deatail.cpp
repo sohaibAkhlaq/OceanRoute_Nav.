@@ -43,7 +43,7 @@ string minutesToString(int mins)
 void drawArrow(RenderWindow &window, float x1, float y1, float x2, float y2,
                Color color = Color::Yellow, float thickness = 1.f)
 {
-    Vector2f dir(x2 - x1, y2 - y1); // ← Fixed: was "y 1"
+    Vector2f dir(x2 - x1, y2 - y1);
     float length = sqrt(dir.x * dir.x + dir.y * dir.y);
     if (length < 1.f)
         return;
@@ -98,9 +98,12 @@ vector<pair<vector<pair<PortNode *, Edge *>>, vector<PortNode *>>> allPaths;
 // Scrollable details panel
 RectangleShape detailsBox, detailsScrollTrack;
 RectangleShape detailsScrollThumb;
-float detailsScrollOffset = 0.f; // ← Fixed typo: vekdetailsScrollOffset → detailsScrollOffset
+float detailsScrollOffset = 0.f;
+const float detailsMaxHeight = 500.f;
 const float detailsLineHeight = 78.f;
 
+// NEW: Collapsible Route Details Panel
+bool detailsPanelOpen = false;
 RectangleShape detailsToggleBtn, detailsBackBtn;
 Text detailsToggleTxt, detailsBackTxt;
 
@@ -125,19 +128,12 @@ int main()
 
     Sprite mapSprite(mapTexture), starterSprite(starterTexture);
     mapSprite.setScale(float(dm.width) / mapTexture.getSize().x, float(dm.height) / mapTexture.getSize().y);
-    mapSprite.setColor(Color(150, 150, 150));
     starterSprite.setScale(float(dm.width) / starterTexture.getSize().x, float(dm.height) / starterTexture.getSize().y);
 
     float panelWidth = dm.width * 0.20f;
     float panelX = -panelWidth;
     bool panelOpen = false;
     float slideSpeed = 1200.f;
-
-    // NEW: Collapsible Route Details Panel with smooth slide
-    bool detailsPanelOpen = false;
-    bool detailsPanelClosing = false;
-    float detailsPanelOffset = -panelWidth; // For smooth sliding
-    const float detailsSlideSpeed = 1800.f;
 
     RectangleShape toggleBtn, minBtn, closeBtn, continueBtn, showAllBtn;
     Text toggleTxt, minTxt, closeTxt, continueTxt, showAllTxt;
@@ -147,6 +143,7 @@ int main()
     setupInputBox(closeBtn, closeTxt, font, "X", Vector2f(dm.width - 50, 10), Vector2f(40, 40), Color(180, 50, 50), Color::White, 26);
     setupInputBox(continueBtn, continueTxt, font, "Continue", Vector2f(dm.width / 2 - 150, dm.height / 2 - 35), Vector2f(300, 70), Color(255, 255, 255, 180), Color::Black, 28);
 
+    // NEW: Route Details Toggle Button
     setupInputBox(detailsToggleBtn, detailsToggleTxt, font, "Route Details >", Vector2f(0, 0), Vector2f(panelWidth - 40, 50), Color(70, 70, 90), Color::White, 20);
     setupInputBox(detailsBackBtn, detailsBackTxt, font, "< Back", Vector2f(0, 0), Vector2f(80, 50), Color(100, 60, 60), Color::White, 20);
 
@@ -155,6 +152,7 @@ int main()
     modeSelect.placeholder = "All Possible Paths";
     modeSelect.selected = "All Possible Paths";
 
+    // Date Select Setup
     dateSelect.placeholder = "Select date...";
     dateSelect.selected = "1 / 12 / 2024";
     vector<string> days;
@@ -212,26 +210,6 @@ int main()
             panelX -= slideSpeed * dt;
         panelX = clamp(panelX, -panelWidth, 0.f);
 
-        // Smooth slide for details panel
-        // Smooth slide for details panel — slides IN from LEFT (like a drawer)
-        // Open animation — only if NOT closing
-        if (detailsPanelOpen && !detailsPanelClosing && detailsPanelOffset < 0)
-            detailsPanelOffset += detailsSlideSpeed * dt;
-
-        // Close animation
-        if (detailsPanelClosing && detailsPanelOffset > -panelWidth)
-            detailsPanelOffset -= detailsSlideSpeed * dt;
-
-        // When animation finished → really close it
-        if (detailsPanelClosing && detailsPanelOffset <= -panelWidth + 10.f)
-        {
-            detailsPanelOpen = false;
-            detailsPanelClosing = false;
-            detailsPanelOffset = -panelWidth;
-        }
-
-        detailsPanelOffset = clamp(detailsPanelOffset, -panelWidth, 0.f);
-
         Event event;
         while (window.pollEvent(event))
         {
@@ -260,20 +238,17 @@ int main()
                 if (detailsPanelOpen && detailsBox.getGlobalBounds().contains(mouse))
                 {
                     int edges = allPaths.empty() ? 0 : allPaths[currentPathIndex].first.size();
-                    float contentHeight = edges * detailsLineHeight + 300;
-                    float viewHeight = dm.height - 220;
-                    if (contentHeight > viewHeight)
+                    float contentHeight = edges * detailsLineHeight + 180;
+                    if (contentHeight > detailsMaxHeight)
                     {
-                        float maxOffset = contentHeight - viewHeight;
+                        float maxOffset = contentHeight - detailsMaxHeight;
                         detailsScrollOffset -= event.mouseWheelScroll.delta * 45.f;
                         detailsScrollOffset = clamp(detailsScrollOffset, 0.f, maxOffset);
                     }
                 }
             }
 
-            if (event.type == Event::MouseButtonPressed &&
-                event.mouseButton.button == Mouse::Left &&
-                clickTimer <= 0.f)
+            if (event.type == Event::MouseButtonPressed && event.mouseButton.button == Mouse::Left && clickTimer <= 0.f)
             {
                 Vector2f pos(event.mouseButton.x, event.mouseButton.y);
                 clickTimer = clickCooldown;
@@ -291,8 +266,7 @@ int main()
                 if (toggleBtn.getGlobalBounds().contains(pos))
                 {
                     panelOpen = !panelOpen;
-                    fromSelect.dropdown.open = toSelect.dropdown.open =
-                        modeSelect.dropdown.open = dateSelect.dropdown.open = false;
+                    fromSelect.dropdown.open = toSelect.dropdown.open = modeSelect.dropdown.open = dateSelect.dropdown.open = false;
                     activeDropdown = nullptr;
                     detailsPanelOpen = false;
                     continue;
@@ -301,53 +275,30 @@ int main()
                 if (!panelOpen)
                     continue;
 
-                // BLOCK ALL OTHER BUTTONS WHEN DETAILS PANEL IS OPEN OR CLOSING
-                if (detailsPanelOpen || detailsPanelClosing)
+                // NEW: Toggle Details Panel
+                if (!allPaths.empty() && detailsToggleBtn.getGlobalBounds().contains(pos))
                 {
-                    if (detailsBackBtn.getGlobalBounds().contains(pos))
-                    {
-                        detailsPanelClosing = true; // start closing
-                        detailsScrollOffset = 0.f;
-                    }
+                    detailsPanelOpen = !detailsPanelOpen;
+                    continue;
+                }
+                if (detailsPanelOpen && detailsBackBtn.getGlobalBounds().contains(pos))
+                {
+                    detailsPanelOpen = false;
                     continue;
                 }
 
-                // ------------------ BLOCK certain buttons if dropdown is open ------------------
-                bool anyDropdownOpen =
-                    fromSelect.dropdown.open ||
-                    toSelect.dropdown.open ||
-                    modeSelect.dropdown.open ||
-                    dateSelect.dropdown.open;
-
-                if (anyDropdownOpen)
-                {
-                    // Only allow clicks inside active dropdown
-                    if (!(activeDropdown &&
-                          (activeDropdown->dropdown.getBounds().contains(pos) ||
-                           activeDropdown->box.getGlobalBounds().contains(pos))))
-                    {
-                        continue; // block ALL buttons like detailsToggleBtn, prevBtn, nextBtn, showAllBtn
-                    }
-                }
-
-                // ----------------- NOW handle dropdown collapse -----------------
                 if (activeDropdown != nullptr)
                 {
-                    bool inside =
-                        activeDropdown->dropdown.getBounds().contains(pos) ||
-                        activeDropdown->box.getGlobalBounds().contains(pos);
-
+                    bool inside = activeDropdown->dropdown.getBounds().contains(pos) ||
+                                  activeDropdown->box.getGlobalBounds().contains(pos);
                     if (!inside)
                     {
-                        fromSelect.dropdown.open = toSelect.dropdown.open =
-                            modeSelect.dropdown.open = dateSelect.dropdown.open = false;
-
+                        fromSelect.dropdown.open = toSelect.dropdown.open = modeSelect.dropdown.open = dateSelect.dropdown.open = false;
                         activeDropdown = nullptr;
                         continue;
                     }
                 }
 
-                // ----------------- Dropdown open clicks -----------------
                 bool hitFrom = fromSelect.box.getGlobalBounds().contains(pos);
                 bool hitTo = toSelect.box.getGlobalBounds().contains(pos);
                 bool hitMode = modeSelect.box.getGlobalBounds().contains(pos);
@@ -356,9 +307,7 @@ int main()
                 if (hitDate && activeDropdown == nullptr)
                 {
                     dateSelect.dropdown.open = !dateSelect.dropdown.open;
-                    fromSelect.dropdown.open = toSelect.dropdown.open =
-                        modeSelect.dropdown.open = false;
-
+                    fromSelect.dropdown.open = toSelect.dropdown.open = modeSelect.dropdown.open = false;
                     activeDropdown = dateSelect.dropdown.open ? &dateSelect : nullptr;
                     dateSelect.dropdown.scrollOffset = 0;
                     continue;
@@ -366,9 +315,7 @@ int main()
                 if (hitFrom && activeDropdown == nullptr)
                 {
                     fromSelect.dropdown.open = !fromSelect.dropdown.open;
-                    toSelect.dropdown.open = modeSelect.dropdown.open =
-                        dateSelect.dropdown.open = false;
-
+                    toSelect.dropdown.open = modeSelect.dropdown.open = dateSelect.dropdown.open = false;
                     activeDropdown = fromSelect.dropdown.open ? &fromSelect : nullptr;
                     fromSelect.dropdown.scrollOffset = 0;
                     continue;
@@ -376,9 +323,7 @@ int main()
                 if (hitTo && activeDropdown == nullptr)
                 {
                     toSelect.dropdown.open = !toSelect.dropdown.open;
-                    fromSelect.dropdown.open = modeSelect.dropdown.open =
-                        dateSelect.dropdown.open = false;
-
+                    fromSelect.dropdown.open = modeSelect.dropdown.open = dateSelect.dropdown.open = false;
                     activeDropdown = toSelect.dropdown.open ? &toSelect : nullptr;
                     toSelect.dropdown.scrollOffset = 0;
                     continue;
@@ -386,59 +331,40 @@ int main()
                 if (hitMode && activeDropdown == nullptr)
                 {
                     modeSelect.dropdown.open = !modeSelect.dropdown.open;
-                    fromSelect.dropdown.open = toSelect.dropdown.open =
-                        dateSelect.dropdown.open = false;
-
+                    fromSelect.dropdown.open = toSelect.dropdown.open = dateSelect.dropdown.open = false;
                     activeDropdown = modeSelect.dropdown.open ? &modeSelect : nullptr;
                     modeSelect.dropdown.scrollOffset = 0;
                     continue;
                 }
 
-                // ----------------- Only allow these if dropdown NOT open -----------------
-                if (!anyDropdownOpen)
+                if (showAllBtn.getGlobalBounds().contains(pos))
                 {
-                    if (showAllBtn.getGlobalBounds().contains(pos))
-                    {
-                        showAllPaths = !showAllPaths;
-                        continue;
-                    }
-
-                    if (modeSelect.selected == "All Possible Paths" && allPaths.size() > 1)
-                    {
-                        if (prevBtn.getGlobalBounds().contains(pos))
-                            currentPathIndex = (currentPathIndex - 1 + allPaths.size()) % allPaths.size();
-                        if (nextBtn.getGlobalBounds().contains(pos))
-                            currentPathIndex = (currentPathIndex + 1) % allPaths.size();
-                    }
-
-                    if (!allPaths.empty() && detailsToggleBtn.getGlobalBounds().contains(pos))
-                    {
-                        detailsPanelOpen = true;
-                        detailsScrollOffset = 0.f;
-                        continue;
-                    }
+                    showAllPaths = !showAllPaths;
+                    continue;
                 }
 
-                // ----------------- Dropdown item picking -----------------
+                if (modeSelect.selected == "All Possible Paths" && allPaths.size() > 1)
+                {
+                    if (prevBtn.getGlobalBounds().contains(pos))
+                        currentPathIndex = (currentPathIndex - 1 + allPaths.size()) % allPaths.size();
+                    if (nextBtn.getGlobalBounds().contains(pos))
+                        currentPathIndex = (currentPathIndex + 1) % allPaths.size();
+                }
+
                 auto pick = [&](Dropdown &dd, string &target)
                 {
                     if (!dd.open)
                         return false;
-
                     int start = (int)(dd.scrollOffset / dd.itemHeight);
-
                     for (int i = 0; i < dd.maxVisible && start + i < (int)dd.items.size(); ++i)
                     {
-                        FloatRect r(dd.x + 8, dd.y + 8 + i * dd.itemHeight,
-                                    dd.width - 16, dd.itemHeight - 8);
-
+                        FloatRect r(dd.x + 8, dd.y + 8 + i * dd.itemHeight, dd.width - 16, dd.itemHeight - 8);
                         if (r.contains(pos))
                         {
                             target = dd.items[start + i];
                             dd.open = false;
                             activeDropdown = nullptr;
                             dd.scrollOffset = 0;
-
                             allPaths.clear();
                             currentPathIndex = 0;
                             detailsScrollOffset = 0;
@@ -592,6 +518,7 @@ int main()
 
         if (panelOpen)
         {
+            // === INPUT FIELDS (unchanged) ===
             dateSelect.box.setPosition(panelX + 20, 100);
             fromSelect.box.setPosition(panelX + 20, 200);
             toSelect.box.setPosition(panelX + 20, 300);
@@ -682,43 +609,47 @@ int main()
                 window.draw(nextTxt);
             }
 
+            // NEW: Route Details Toggle Button (only shown when path exists and details not open)
             if (!allPaths.empty() && !detailsPanelOpen)
             {
+                // detailsToggleBtn.setPosition(panelX + 20, 520);
                 setupInputBox(detailsToggleBtn, detailsToggleTxt, font, "Route Details >", Vector2f(panelX + 20, 560), Vector2f(panelWidth - 40, 50), Color(70, 70, 90), Color::White, 20);
+
                 window.draw(detailsToggleBtn);
                 window.draw(detailsToggleTxt);
             }
 
-            setupInputBox(showAllBtn, showAllTxt, font, "Show all routes",
-                          Vector2f(panelX + 20, dm.height - 100), Vector2f(panelWidth - 40, 50),
-                          showAllPaths ? Color(100, 100, 200) : Color(70, 70, 70), Color::White, 18);
-            window.draw(showAllBtn);
-            window.draw(showAllTxt);
-
-            // FULL SCREEN DETAILS PANEL WITH SMOOTH SLIDE
-            if ((detailsPanelOpen || detailsPanelClosing) && !allPaths.empty())
+            // NEW: Full Route Details Sub-Panel
+            if (detailsPanelOpen && !allPaths.empty())
             {
-                RectangleShape detailsOverlay(Vector2f(panelWidth, dm.height));
-                detailsOverlay.setPosition(detailsPanelOffset, 0);
-                detailsOverlay.setFillColor(Color(20, 20, 30, 250));
-                window.draw(detailsOverlay);
+                // Background overlay
+                RectangleShape overlay(Vector2f(panelWidth, dm.height));
+                overlay.setPosition(panelX, 0);
+                overlay.setFillColor(Color(20, 20, 30, 250));
+                window.draw(overlay);
 
-                setupInputBox(detailsBackBtn, detailsBackTxt, font, "< Back", Vector2f(detailsPanelOffset + 20, 20), Vector2f(80, 50), Color(100, 60, 60), Color::White, 20);
+                // Back button
+                // detailsBackBtn.setPosition(panelX + 20, 20);
+                //  setupInputBox(detailsToggleBtn, detailsToggleTxt, font, "Route Details >", Vector2f(0, 0), Vector2f(panelWidth - 40, 50), Color(70, 70, 90), Color::White, 20);
+                setupInputBox(detailsBackBtn, detailsBackTxt, font, "< Back", Vector2f(panelX + 20, 20), Vector2f(80, 50), Color(100, 60, 60), Color::White, 20);
+
                 window.draw(detailsBackBtn);
                 window.draw(detailsBackTxt);
 
+                // Title
                 Text title("Route Details", font, 28);
                 title.setFillColor(Color::White);
                 title.setStyle(Text::Bold);
-                title.setPosition(detailsPanelOffset + 20, 80);
+                title.setPosition(panelX + 20, 80);
                 window.draw(title);
 
+                // Scrollable content
                 detailsBox = RectangleShape(Vector2f(panelWidth - 40, dm.height - 200));
-                detailsBox.setPosition(detailsPanelOffset + 20, 130);
+                detailsBox.setPosition(panelX + 20, 130);
                 detailsBox.setFillColor(Color(40, 40, 50, 240));
                 window.draw(detailsBox);
 
-                FloatRect view(detailsPanelOffset + 30, 140, panelWidth - 60, dm.height - 220);
+                FloatRect view(panelX + 30, 140, panelWidth - 60, dm.height - 220);
                 float y = 140 - detailsScrollOffset;
 
                 auto &path = allPaths[currentPathIndex];
@@ -744,23 +675,23 @@ int main()
                     if (y + 85 > view.top && y < view.top + view.height)
                     {
                         RectangleShape rowBg(Vector2f(panelWidth - 60, detailsLineHeight - 10));
-                        rowBg.setPosition(detailsPanelOffset + 30, y + 5);
+                        rowBg.setPosition(panelX + 30, y + 5);
                         rowBg.setFillColor(i % 2 == 0 ? Color(50, 50, 60, 180) : Color(45, 45, 55, 180));
                         window.draw(rowBg);
 
                         Text leg(from->name + " to " + to->name, font, 18);
                         leg.setFillColor(Color::White);
-                        leg.setPosition(detailsPanelOffset + 40, y + 8);
+                        leg.setPosition(panelX + 40, y + 8);
                         window.draw(leg);
 
                         Text timeInfo(e->date + " | " + e->dep + " to " + e->arr + " (" + minutesToString(duration) + ")", font, 16);
                         timeInfo.setFillColor(Color(200, 200, 200));
-                        timeInfo.setPosition(detailsPanelOffset + 40, y + 30);
+                        timeInfo.setPosition(panelX + 40, y + 30);
                         window.draw(timeInfo);
 
                         Text costComp(e->company + " - $" + to_string(e->cost), font, 16);
                         costComp.setFillColor(Color(180, 255, 180));
-                        costComp.setPosition(detailsPanelOffset + 40, y + 50);
+                        costComp.setPosition(panelX + 40, y + 50);
                         window.draw(costComp);
                     }
                     y += detailsLineHeight;
@@ -769,7 +700,7 @@ int main()
                 Text total("TOTAL: $" + to_string(totalCost) + " | Duration: " + minutesToString(totalMinutes), font, 22);
                 total.setFillColor(Color::White);
                 total.setStyle(Text::Bold);
-                total.setPosition(detailsPanelOffset + 35, y + 20);
+                total.setPosition(panelX + 35, y + 20);
                 if (y + 60 < view.top + view.height)
                     window.draw(total);
 
@@ -778,17 +709,18 @@ int main()
                     string arrival = "Final Arrival: " + path.first.back().second->date + " at " + path.first.back().second->arr;
                     Text arrive(arrival, font, 18);
                     arrive.setFillColor(Color(200, 255, 200));
-                    arrive.setPosition(detailsPanelOffset + 35, y + 60);
+                    arrive.setPosition(panelX + 35, y + 60);
                     if (y + 100 < view.top + view.height)
                         window.draw(arrive);
                 }
 
+                // Scrollbar
                 float contentHeight = edges * detailsLineHeight + 300;
                 if (contentHeight > dm.height - 200)
                 {
                     float trackH = dm.height - 260;
                     detailsScrollTrack = RectangleShape(Vector2f(10, trackH));
-                    detailsScrollTrack.setPosition(detailsPanelOffset + panelWidth - 35, 160);
+                    detailsScrollTrack.setPosition(panelX + panelWidth - 35, 160);
                     detailsScrollTrack.setFillColor(Color(70, 70, 80, 180));
                     window.draw(detailsScrollTrack);
 
@@ -800,10 +732,16 @@ int main()
 
                     detailsScrollThumb = RectangleShape(Vector2f(10, thumbH));
                     detailsScrollThumb.setFillColor(Color(150, 150, 200));
-                    detailsScrollThumb.setPosition(detailsPanelOffset + panelWidth - 35, thumbY);
+                    detailsScrollThumb.setPosition(panelX + panelWidth - 35, thumbY);
                     window.draw(detailsScrollThumb);
                 }
             }
+
+            setupInputBox(showAllBtn, showAllTxt, font, "Show all routes",
+                          Vector2f(panelX + 20, dm.height - 100), Vector2f(panelWidth - 40, 50),
+                          showAllPaths ? Color(100, 100, 200) : Color(70, 70, 70), Color::White, 18);
+            window.draw(showAllBtn);
+            window.draw(showAllTxt);
         }
 
         auto drawDrop = [&](const Dropdown &dd)
