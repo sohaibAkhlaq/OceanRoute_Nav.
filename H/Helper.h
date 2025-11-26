@@ -1,5 +1,4 @@
-#ifndef HELPER_H
-#define HELPER_H
+#pragma once
 
 #include <iostream>
 #include<cstring>
@@ -111,4 +110,4 @@ void pauseSystem()
     cout << "\033[0m";
 }
 
-#endif
+

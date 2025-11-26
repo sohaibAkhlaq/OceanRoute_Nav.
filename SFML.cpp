@@ -16,28 +16,6 @@
 using namespace std;
 using namespace sf;
 
-// Helper: convert "HH:MM" to minutes since midnight
-int timeToMinutes(const string &t)
-{
-    int h = (t[0] - '0') * 10 + (t[1] - '0');
-    int m = (t[3] - '0') * 10 + (t[4] - '0');
-    return h * 60 + m;
-}
-
-// Helper: minutes to "Xh Ym"
-string minutesToString(int mins)
-{
-    if (mins < 0)
-        mins = 0;
-    int h = mins / 60;
-    int m = mins % 60;
-    stringstream ss;
-    if (h > 0)
-        ss << h << "h ";
-    if (m > 0 || h == 0)
-        ss << m << "m";
-    return ss.str().empty() ? "0m" : ss.str();
-}
 
 // Arrow drawing
 void drawArrow(RenderWindow &window, float x1, float y1, float x2, float y2,
@@ -64,6 +42,44 @@ void drawArrow(RenderWindow &window, float x1, float y1, float x2, float y2,
     head.setPosition(x2, y2);
     head.setRotation(angle);
     window.draw(head);
+}
+
+// Helper function to display total cost & duration of a path
+void drawPathSummary(RenderWindow &window, const Font &font,
+                     const vector<PathStep> &path, float panelX, float panelWidth, float y)
+{
+    int totalCost = 0;
+    long long totalMinutes = 0; // changed to long long for consistency
+
+    for (auto &step : path)
+    {
+        bool isTravel = (!step.isWaiting && step.edge != nullptr);
+        bool isWait = step.isWaiting;
+
+        long long duration = step.arriveTime - step.departTime;
+        if (duration < 0)
+            duration += 1440; // handle overnight trips
+
+        if (isTravel)
+            totalCost += step.travelCost;
+        else if (isWait)
+            totalCost += step.waitingCost;
+
+        totalMinutes += duration;
+    }
+
+    string summary = "Cost: $" + to_string(totalCost) +
+                     "\nDuration: " + minutesToString(totalMinutes);
+
+    Text text(summary, font, 16); // smaller font
+    text.setFillColor(Color::White);
+
+    // Center horizontally in panel
+    FloatRect bounds = text.getLocalBounds();
+    float centerX = panelX + (panelWidth - bounds.width) / 2.f;
+    text.setPosition(centerX, y);
+
+    window.draw(text);
 }
 
 // Dropdown & SelectBox
@@ -93,16 +109,13 @@ SelectBox *activeDropdown = nullptr;
 RectangleShape prevBtn, nextBtn;
 Text prevTxt, nextTxt;
 int currentPathIndex = 0;
-vector<pair<vector<pair<PortNode *, Edge *>>, vector<PortNode *>>> allPaths;
+vector<vector<PathStep>> allPaths;
 
 // Scrollable details panel
 RectangleShape detailsBox, detailsScrollTrack;
 RectangleShape detailsScrollThumb;
-float detailsScrollOffset = 0.f; // ← Fixed typo: vekdetailsScrollOffset → detailsScrollOffset
+float detailsScrollOffset = 0.f; // ← Fixed typo: vekdetailsScrollOffset -> detailsScrollOffset
 const float detailsLineHeight = 78.f;
-
-RectangleShape detailsToggleBtn, detailsBackBtn;
-Text detailsToggleTxt, detailsBackTxt;
 
 int main()
 {
@@ -111,7 +124,7 @@ int main()
     window.setFramerateLimit(60);
 
     Font font;
-    if (!font.loadFromFile("Font/arial.ttf"))
+    if (!font.loadFromFile("Font/dejavu-sans.book.ttf"))
     {
         cout << "Font not found!\n";
         return 0;
@@ -139,6 +152,12 @@ int main()
     float detailsPanelOffset = -panelWidth; // For smooth sliding
     const float detailsSlideSpeed = 1800.f;
 
+    // === ADD THESE LINES ONLY (near detailsPanel variables) ===
+    bool customizePanelOpen = false;
+    bool customizePanelClosing = false;
+    float customizePanelOffset = -panelWidth; // starts hidden left
+    const float customizeSlideSpeed = 1800.f;
+
     RectangleShape toggleBtn, minBtn, closeBtn, continueBtn, showAllBtn;
     Text toggleTxt, minTxt, closeTxt, continueTxt, showAllTxt;
 
@@ -147,8 +166,17 @@ int main()
     setupInputBox(closeBtn, closeTxt, font, "X", Vector2f(dm.width - 50, 10), Vector2f(40, 40), Color(180, 50, 50), Color::White, 26);
     setupInputBox(continueBtn, continueTxt, font, "Continue", Vector2f(dm.width / 2 - 150, dm.height / 2 - 35), Vector2f(300, 70), Color(255, 255, 255, 180), Color::Black, 28);
 
+    RectangleShape detailsToggleBtn, detailsBackBtn;
+    Text detailsToggleTxt, detailsBackTxt;
+
     setupInputBox(detailsToggleBtn, detailsToggleTxt, font, "Route Details >", Vector2f(0, 0), Vector2f(panelWidth - 40, 50), Color(70, 70, 90), Color::White, 20);
     setupInputBox(detailsBackBtn, detailsBackTxt, font, "< Back", Vector2f(0, 0), Vector2f(80, 50), Color(100, 60, 60), Color::White, 20);
+
+    RectangleShape customizeToggleBtn, customizeBackBtn;
+    Text customizeToggleTxt, customizeBackTxt;
+
+    setupInputBox(customizeToggleBtn, customizeToggleTxt, font, "Customize Path >", Vector2f(0, 0), Vector2f(panelWidth - 40, 50), Color(70, 70, 90), Color::White, 20);
+    setupInputBox(customizeBackBtn, customizeBackTxt, font, "< Back", Vector2f(0, 0), Vector2f(80, 50), Color(100, 60, 60), Color::White, 20);
 
     fromSelect.placeholder = "Select departure port...";
     toSelect.placeholder = "Select destination port...";
@@ -168,7 +196,7 @@ int main()
     modeSelect.arrow.setFillColor(Color(180, 180, 180));
     dateSelect.arrow.setFillColor(Color(180, 180, 180));
 
-    modeSelect.dropdown.items = {"All Possible Paths", "Optimal Path"};
+    modeSelect.dropdown.items = {"All Possible Paths", "Optimal Path", "Fastest Path"};
 
     prevBtn = RectangleShape(Vector2f(50, 50));
     nextBtn = RectangleShape(Vector2f(50, 50));
@@ -206,31 +234,54 @@ int main()
         Vector2i mi = Mouse::getPosition(window);
         Vector2f mouse(mi.x, mi.y);
 
-        if (panelOpen && panelX < 0)
-            panelX += slideSpeed * dt;
-        if (!panelOpen && panelX > -panelWidth)
-            panelX -= slideSpeed * dt;
-        panelX = clamp(panelX, -panelWidth, 0.f);
+        {
+            if (panelOpen && panelX < 0)
+                panelX += slideSpeed * dt;
+            if (!panelOpen && panelX > -panelWidth)
+                panelX -= slideSpeed * dt;
+            panelX = clamp(panelX, -panelWidth, 0.f);
+        }
 
         // Smooth slide for details panel
         // Smooth slide for details panel — slides IN from LEFT (like a drawer)
-        // Open animation — only if NOT closing
-        if (detailsPanelOpen && !detailsPanelClosing && detailsPanelOffset < 0)
-            detailsPanelOffset += detailsSlideSpeed * dt;
-
-        // Close animation
-        if (detailsPanelClosing && detailsPanelOffset > -panelWidth)
-            detailsPanelOffset -= detailsSlideSpeed * dt;
-
-        // When animation finished → really close it
-        if (detailsPanelClosing && detailsPanelOffset <= -panelWidth + 10.f)
         {
-            detailsPanelOpen = false;
-            detailsPanelClosing = false;
-            detailsPanelOffset = -panelWidth;
+
+            // Open animation — only if NOT closing
+            if (detailsPanelOpen && !detailsPanelClosing && detailsPanelOffset < 0)
+                detailsPanelOffset += detailsSlideSpeed * dt;
+
+            // Close animation
+            if (detailsPanelClosing && detailsPanelOffset > -panelWidth)
+                detailsPanelOffset -= detailsSlideSpeed * dt;
+
+            // When animation finished -> really close it
+            if (detailsPanelClosing && detailsPanelOffset <= -panelWidth + 10.f)
+            {
+                detailsPanelOpen = false;
+                detailsPanelClosing = false;
+                detailsPanelOffset = -panelWidth;
+            }
+
+            detailsPanelOffset = clamp(detailsPanelOffset, -panelWidth, 0.f);
         }
 
-        detailsPanelOffset = clamp(detailsPanelOffset, -panelWidth, 0.f);
+        {
+            // === CUSTOMIZE PANEL SMOOTH SLIDE (same as details panel) ===
+            if (customizePanelOpen && !customizePanelClosing && customizePanelOffset < 0)
+                customizePanelOffset += customizeSlideSpeed * dt;
+
+            if (customizePanelClosing && customizePanelOffset > -panelWidth)
+                customizePanelOffset -= customizeSlideSpeed * dt;
+
+            if (customizePanelClosing && customizePanelOffset <= -panelWidth + 10.f)
+            {
+                customizePanelOpen = false;
+                customizePanelClosing = false;
+                customizePanelOffset = -panelWidth;
+            }
+
+            customizePanelOffset = clamp(customizePanelOffset, -panelWidth, 0.f);
+        }
 
         Event event;
         while (window.pollEvent(event))
@@ -259,13 +310,23 @@ int main()
 
                 if (detailsPanelOpen && detailsBox.getGlobalBounds().contains(mouse))
                 {
-                    int edges = allPaths.empty() ? 0 : allPaths[currentPathIndex].first.size();
-                    float contentHeight = edges * detailsLineHeight + 300;
+                    // Number of steps (travel steps + waiting steps)
+                    int steps = allPaths.empty() ? 0 : allPaths[currentPathIndex].size();
+
+                    // Total content height
+                    float contentHeight = steps * detailsLineHeight + 300;
+
+                    // Viewport height
                     float viewHeight = dm.height - 220;
+
                     if (contentHeight > viewHeight)
                     {
                         float maxOffset = contentHeight - viewHeight;
+
+                        // Wheel scrolling
                         detailsScrollOffset -= event.mouseWheelScroll.delta * 45.f;
+
+                        // Clamp scroll range
                         detailsScrollOffset = clamp(detailsScrollOffset, 0.f, maxOffset);
                     }
                 }
@@ -312,6 +373,16 @@ int main()
                     continue;
                 }
 
+                if (customizePanelOpen || customizePanelClosing)
+                {
+                    if (customizeBackBtn.getGlobalBounds().contains(pos))
+                    {
+                        customizePanelClosing = true; // start closing
+                        // customizeScrollOffset = 0.f;
+                    }
+                    continue;
+                }
+
                 // ------------------ BLOCK certain buttons if dropdown is open ------------------
                 bool anyDropdownOpen =
                     fromSelect.dropdown.open ||
@@ -326,24 +397,13 @@ int main()
                           (activeDropdown->dropdown.getBounds().contains(pos) ||
                            activeDropdown->box.getGlobalBounds().contains(pos))))
                     {
-                        continue; // block ALL buttons like detailsToggleBtn, prevBtn, nextBtn, showAllBtn
-                    }
-                }
-
-                // ----------------- NOW handle dropdown collapse -----------------
-                if (activeDropdown != nullptr)
-                {
-                    bool inside =
-                        activeDropdown->dropdown.getBounds().contains(pos) ||
-                        activeDropdown->box.getGlobalBounds().contains(pos);
-
-                    if (!inside)
-                    {
+                        // ----------------- NOW handle dropdown collapse -----------------
                         fromSelect.dropdown.open = toSelect.dropdown.open =
                             modeSelect.dropdown.open = dateSelect.dropdown.open = false;
 
                         activeDropdown = nullptr;
-                        continue;
+
+                        continue; // block ALL buttons like detailsToggleBtn, prevBtn, nextBtn, showAllBtn
                     }
                 }
 
@@ -415,6 +475,13 @@ int main()
                     {
                         detailsPanelOpen = true;
                         detailsScrollOffset = 0.f;
+                        continue;
+                    }
+
+                    if (!allPaths.empty() && customizeToggleBtn.getGlobalBounds().contains(pos))
+                    {
+                        customizePanelOpen = true;
+                        // detailsScrollOffset = 0.f;
                         continue;
                     }
                 }
@@ -496,20 +563,25 @@ int main()
 
         if (panelOpen && !fromSelect.selected.empty() && !toSelect.selected.empty())
         {
-            bool needRecalc = allPaths.empty() ||
-                              (modeSelect.selected == "All Possible Paths" && allPaths.size() <= 1) ||
-                              (modeSelect.selected == "Optimal Path");
+            bool needRecalc = allPaths.empty();
+            // ||
+            //                   (modeSelect.selected == "All Possible Paths" && allPaths.size() <= 1) ||
+            //                   (modeSelect.selected == "Optimal Path");
 
             if (needRecalc)
             {
                 allPaths.clear();
                 if (modeSelect.selected == "All Possible Paths")
                     allPaths = g.allValidPaths(fromSelect.selected, toSelect.selected, dateSelect.selected);
+                else if (modeSelect.selected == "Optimal Path")
+                {
+                    auto D_PATH = g.dijkstraPath(fromSelect.selected, toSelect.selected, dateSelect.selected);
+                    allPaths.push_back(D_PATH);
+                }
                 else
                 {
-                    auto [edges, nodes] = g.dijkstraPath(fromSelect.selected, toSelect.selected, dateSelect.selected);
-                    if (!edges.empty())
-                        allPaths.push_back({edges, nodes});
+                    auto D_PATH = g.dijkstraFastestPath(fromSelect.selected, toSelect.selected, dateSelect.selected);
+                    allPaths.push_back(D_PATH);
                 }
                 currentPathIndex = 0;
                 detailsScrollOffset = 0;
@@ -566,14 +638,22 @@ int main()
         if (!allPaths.empty())
         {
             auto &path = allPaths[currentPathIndex];
-            for (auto &e : path.first)
+
+            for (auto &step : path) // path is now vector<PathStep>
             {
-                PortNode *to = g.findVertexByName(e.second->dest);
-                if (to)
-                    drawArrow(window,
-                              mapX(e.first->portData.lon), mapY(e.first->portData.lat),
-                              mapX(to->portData.lon), mapY(to->portData.lat),
-                              modeSelect.selected == "Optimal Path" ? Color::Yellow : Color::Cyan, 5.f);
+                // Skip waiting steps — they have no movement
+                if (step.isWaiting || step.to == nullptr)
+                    continue;
+
+                // Draw arrow from -> to
+                drawArrow(
+                    window,
+                    mapX(step.from->portData.lon), mapY(step.from->portData.lat),
+                    mapX(step.to->portData.lon), mapY(step.to->portData.lat),
+                    modeSelect.selected == "Optimal Path"
+                        ? Color::Yellow
+                        : Color::Cyan,
+                    5.f);
             }
         }
 
@@ -682,11 +762,26 @@ int main()
                 window.draw(nextTxt);
             }
 
-            if (!allPaths.empty() && !detailsPanelOpen)
+            if (!allPaths.empty())
+            {
+                drawPathSummary(window, font, allPaths[currentPathIndex], panelX, panelWidth, 505);
+            }
+
+            if (!allPaths.empty() && !detailsPanelOpen && !customizePanelOpen)
             {
                 setupInputBox(detailsToggleBtn, detailsToggleTxt, font, "Route Details >", Vector2f(panelX + 20, 560), Vector2f(panelWidth - 40, 50), Color(70, 70, 90), Color::White, 20);
                 window.draw(detailsToggleBtn);
                 window.draw(detailsToggleTxt);
+            }
+
+            // === CUSTOMIZE PANEL TOGGLE BUTTON (below Route Details) ===
+            if (!allPaths.empty() && !detailsPanelOpen && !customizePanelOpen)
+            {
+                setupInputBox(customizeToggleBtn, customizeToggleTxt, font, "Customize Path >",
+                              Vector2f(panelX + 20, 620), Vector2f(panelWidth - 40, 50),
+                              Color(70, 90, 70), Color::White, 20);
+                window.draw(customizeToggleBtn);
+                window.draw(customizeToggleTxt);
             }
 
             setupInputBox(showAllBtn, showAllTxt, font, "Show all routes",
@@ -703,7 +798,12 @@ int main()
                 detailsOverlay.setFillColor(Color(20, 20, 30, 250));
                 window.draw(detailsOverlay);
 
-                setupInputBox(detailsBackBtn, detailsBackTxt, font, "< Back", Vector2f(detailsPanelOffset + 20, 20), Vector2f(80, 50), Color(100, 60, 60), Color::White, 20);
+                setupInputBox(detailsBackBtn, detailsBackTxt, font, "< Back",
+                              Vector2f(detailsPanelOffset + 20, 20),
+                              Vector2f(80, 50),
+                              Color(100, 60, 60),
+                              Color::White, 20);
+
                 window.draw(detailsBackBtn);
                 window.draw(detailsBackTxt);
 
@@ -713,34 +813,40 @@ int main()
                 title.setPosition(detailsPanelOffset + 20, 80);
                 window.draw(title);
 
+                // Inner scrolling panel
                 detailsBox = RectangleShape(Vector2f(panelWidth - 40, dm.height - 200));
                 detailsBox.setPosition(detailsPanelOffset + 20, 130);
                 detailsBox.setFillColor(Color(40, 40, 50, 240));
                 window.draw(detailsBox);
 
                 FloatRect view(detailsPanelOffset + 30, 140, panelWidth - 60, dm.height - 220);
+
                 float y = 140 - detailsScrollOffset;
-
                 auto &path = allPaths[currentPathIndex];
-                int edges = path.first.size();
+
                 int totalCost = 0;
-                int totalMinutes = 0;
+                long long totalMinutes = 0;
 
-                for (int i = 0; i < edges; ++i)
+                for (int i = 0; i < path.size(); ++i)
                 {
-                    PortNode *from = path.first[i].first;
-                    Edge *e = path.first[i].second;
-                    PortNode *to = g.findVertexByName(e->dest);
+                    const PathStep &step = path[i];
 
-                    int depMin = timeToMinutes(e->dep);
-                    int arrMin = timeToMinutes(e->arr);
-                    if (arrMin < depMin)
-                        arrMin += 1440;
-                    int duration = arrMin - depMin;
+                    bool isTravel = (!step.isWaiting && step.edge != nullptr);
+                    bool isWait = step.isWaiting;
 
-                    totalCost += e->cost;
+                    // ----- COMPUTE TIME + COST -----
+                    long long duration = step.arriveTime - step.departTime;
+                    if (duration < 0)
+                        duration += 1440;
+
+                    if (isTravel)
+                        totalCost += step.travelCost;
+                    else if (isWait)
+                        totalCost += step.waitingCost;
+
                     totalMinutes += duration;
 
+                    // ----- DRAW ROW -----
                     if (y + 85 > view.top && y < view.top + view.height)
                     {
                         RectangleShape rowBg(Vector2f(panelWidth - 60, detailsLineHeight - 10));
@@ -748,42 +854,81 @@ int main()
                         rowBg.setFillColor(i % 2 == 0 ? Color(50, 50, 60, 180) : Color(45, 45, 55, 180));
                         window.draw(rowBg);
 
-                        Text leg(from->name + " to " + to->name, font, 18);
-                        leg.setFillColor(Color::White);
-                        leg.setPosition(detailsPanelOffset + 40, y + 8);
-                        window.draw(leg);
+                        // ▓▓ WAITING STEP
+                        if (isWait)
+                        {
+                            Text leg("WAIT at " + step.from->name, font, 18);
+                            leg.setFillColor(Color(255, 200, 150));
+                            leg.setPosition(detailsPanelOffset + 40, y + 8);
+                            window.draw(leg);
 
-                        Text timeInfo(e->date + " | " + e->dep + " to " + e->arr + " (" + minutesToString(duration) + ")", font, 16);
-                        timeInfo.setFillColor(Color(200, 200, 200));
-                        timeInfo.setPosition(detailsPanelOffset + 40, y + 30);
-                        window.draw(timeInfo);
+                            Text timeInfo("Duration: " + minutesToString(duration), font, 16);
+                            timeInfo.setFillColor(Color(200, 200, 200));
+                            timeInfo.setPosition(detailsPanelOffset + 40, y + 32);
+                            window.draw(timeInfo);
 
-                        Text costComp(e->company + " - $" + to_string(e->cost), font, 16);
-                        costComp.setFillColor(Color(180, 255, 180));
-                        costComp.setPosition(detailsPanelOffset + 40, y + 50);
-                        window.draw(costComp);
+                            Text cost("Port Fee: $" + to_string(step.waitingCost), font, 16);
+                            cost.setFillColor(Color(255, 170, 170));
+                            cost.setPosition(detailsPanelOffset + 40, y + 52);
+                            window.draw(cost);
+                        }
+                        else
+                        {
+                            // ▓▓ TRAVEL STEP
+                            Text leg(step.from->name + " -> " + step.to->name, font, 18);
+                            leg.setFillColor(Color::White);
+                            leg.setPosition(detailsPanelOffset + 40, y + 8);
+                            window.draw(leg);
+
+                            string dateStr = step.edge->date;
+                            Text timeInfo(dateStr + " | " +
+                                              minutesToTimeString(step.departTime) +
+                                              " -> " +
+                                              minutesToTimeString(step.arriveTime) +
+                                              " (" + minutesToString(duration) + ")",
+                                          font, 16);
+                            timeInfo.setFillColor(Color(200, 200, 200));
+                            timeInfo.setPosition(detailsPanelOffset + 40, y + 32);
+                            window.draw(timeInfo);
+
+                            Text cost(step.edge->company + " - $" + to_string(step.travelCost), font, 16);
+                            cost.setFillColor(Color(180, 255, 180));
+                            cost.setPosition(detailsPanelOffset + 40, y + 52);
+                            window.draw(cost);
+                        }
                     }
                     y += detailsLineHeight;
                 }
 
-                Text total("TOTAL: $" + to_string(totalCost) + " | Duration: " + minutesToString(totalMinutes), font, 22);
+                // ----- TOTALS -----
+                Text total("TOTAL: $" + to_string(totalCost) +
+                               "\nDuration: " + minutesToString(totalMinutes),
+                           font, 22);
                 total.setFillColor(Color::White);
                 total.setStyle(Text::Bold);
                 total.setPosition(detailsPanelOffset + 35, y + 20);
                 if (y + 60 < view.top + view.height)
                     window.draw(total);
 
-                if (edges > 0)
+                // ----- FINAL ARRIVAL -----
+                if (!path.empty() && path.back().edge)
                 {
-                    string arrival = "Final Arrival: " + path.first.back().second->date + " at " + path.first.back().second->arr;
-                    Text arrive(arrival, font, 18);
+                    Text arrive("Final Arrival: " +
+                                    path.back().edge->date +
+                                    " at " +
+                                    path.back().edge->arr,
+                                font, 18);
+
                     arrive.setFillColor(Color(200, 255, 200));
-                    arrive.setPosition(detailsPanelOffset + 35, y + 60);
+                    arrive.setPosition(detailsPanelOffset + 35, y + 70);
+
                     if (y + 100 < view.top + view.height)
                         window.draw(arrive);
                 }
 
-                float contentHeight = edges * detailsLineHeight + 300;
+                // ----- SCROLL BAR -----
+                float contentHeight = path.size() * detailsLineHeight + 300;
+
                 if (contentHeight > dm.height - 200)
                 {
                     float trackH = dm.height - 260;
@@ -803,6 +948,34 @@ int main()
                     detailsScrollThumb.setPosition(detailsPanelOffset + panelWidth - 35, thumbY);
                     window.draw(detailsScrollThumb);
                 }
+            }
+
+            // === CUSTOMIZE PANEL (FULL SCREEN SLIDE-IN) ===
+            if ((customizePanelOpen || customizePanelClosing) && !allPaths.empty())
+            {
+                RectangleShape customizeOverlay(Vector2f(panelWidth, dm.height));
+                customizeOverlay.setPosition(customizePanelOffset, 0);
+                customizeOverlay.setFillColor(Color(20, 30, 20, 250));
+                window.draw(customizeOverlay);
+
+                setupInputBox(customizeBackBtn, customizeBackTxt, font, "< Back",
+                              Vector2f(customizePanelOffset + 20, 20),
+                              Vector2f(80, 50),
+                              Color(100, 60, 60),
+                              Color::White, 20);
+                window.draw(customizeBackBtn);
+                window.draw(customizeBackTxt);
+
+                Text customizeTitle("Customize Path", font, 28);
+                customizeTitle.setFillColor(Color::White);
+                customizeTitle.setStyle(Text::Bold);
+                customizeTitle.setPosition(customizePanelOffset + 20, 80);
+                window.draw(customizeTitle);
+
+                Text comingSoon("Feature coming soon...", font, 22);
+                comingSoon.setFillColor(Color(180, 220, 180));
+                comingSoon.setPosition(customizePanelOffset + 40, 200);
+                window.draw(comingSoon);
             }
         }
 
