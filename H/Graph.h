@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <set>
+#include <algorithm>
 
 #include <queue>
 #include <vector>
@@ -102,6 +103,7 @@ class Graph
 {
 private:
     PortNode *vertices;
+    unordered_set<string> companyNames; // Store all unique company names
 
     PortNode *findVertex(string name)
     {
@@ -114,10 +116,35 @@ private:
         }
         return nullptr;
     }
+
     PortNode *findVertex_Lower(string name)
     {
-
         PortNode *temp = vertices;
+        while (temp != nullptr)
+        {
+            if (to_lower(temp->name) == to_lower(name))
+                return temp;
+            temp = temp->next;
+        }
+        return nullptr;
+    }
+
+    // Const versions for const methods
+    const PortNode *findVertex(string name) const
+    {
+        const PortNode *temp = vertices;
+        while (temp != nullptr)
+        {
+            if (temp->name == name)
+                return temp;
+            temp = temp->next;
+        }
+        return nullptr;
+    }
+
+    const PortNode *findVertex_Lower(string name) const
+    {
+        const PortNode *temp = vertices;
         while (temp != nullptr)
         {
             if (to_lower(temp->name) == to_lower(name))
@@ -146,6 +173,9 @@ private:
         Edge *e = new Edge(dest, date, dep, arr, cost, company);
         e->next = v->head;
         v->head = e;
+
+        // Add company name to the set
+        companyNames.insert(company);
     }
 
     void sortEdges(PortNode *v)
@@ -267,6 +297,7 @@ public:
     Graph(string routesFile, string locationsFile, string chargesFile)
     {
         vertices = nullptr;
+        companyNames.clear();
         loadRoutes(routesFile);
         loadLocations(locationsFile);
         loadCharges(chargesFile);
@@ -346,6 +377,60 @@ public:
     PortNode *findVertexByName(string name) { return findVertex(name); }
     PortNode *findVertexByName_Lower(string name) { return findVertex_Lower(name); }
 
+    // =========================================================================================================================
+    //                                        COMPANY NAMES MANAGEMENT
+    // =========================================================================================================================
+    
+    // Get all unique company names
+    vector<string> getAllCompanyNames() const
+    {
+        vector<string> companies(companyNames.begin(), companyNames.end());
+        sort(companies.begin(), companies.end()); // Sort alphabetically
+        return companies;
+    }
+
+    // Check if a company exists
+    bool companyExists(const string& companyName) const
+    {
+        return companyNames.find(companyName) != companyNames.end();
+    }
+
+    // Get companies by port (companies that operate from a specific port)
+    vector<string> getCompaniesByPort(const string& portName) const
+    {
+        vector<string> companies;
+        const PortNode* port = findVertex_Lower(portName);
+        
+        if (!port) return companies;
+
+        const Edge* edge = port->head;
+        while (edge != nullptr)
+        {
+            companies.push_back(edge->company);
+            edge = edge->next;
+        }
+
+        // Remove duplicates
+        sort(companies.begin(), companies.end());
+        companies.erase(unique(companies.begin(), companies.end()), companies.end());
+        
+        return companies;
+    }
+
+    // Print all companies (for debugging)
+    void printAllCompanies() const
+    {
+        cout << "All Shipping Companies:\n";
+        cout << "=======================\n";
+        vector<string> companies = getAllCompanyNames();
+        for (size_t i = 0; i < companies.size(); ++i)
+        {
+            cout << i + 1 << ". " << companies[i] << "\n";
+        }
+        cout << "=======================\n";
+        cout << "Total: " << companies.size() << " companies\n";
+    }
+
 public:
     // ---------------- ITERATOR SUPPORT ----------------
     class Iterator
@@ -387,7 +472,7 @@ public:
     // Const version
     const PortNode &operator[](size_t index) const
     {
-        PortNode *temp = vertices;
+        const PortNode *temp = vertices;
         size_t i = 0;
 
         while (temp != nullptr && i < index)
@@ -405,8 +490,6 @@ public:
     // =========================================================================================================================
     //                                        ALGORITHM
     // =========================================================================================================================
-    // private:
-    // Convert "22/12/2024" and "09:00" → minutes since epoch
 
 public: // inside Graph class
     vector<PathStep> dijkstraPath(const string &srcName,
@@ -777,7 +860,7 @@ public: // inside Graph class
                 // 2️⃣ Check preferred shipping companies
                 if (!preferredShippingCompanies.empty())
                 {
-                    string company = step.edge->company; // assuming Edge has shipCompany field
+                    string company = step.edge->company;
                     if (find(preferredShippingCompanies.begin(), preferredShippingCompanies.end(), company) == preferredShippingCompanies.end())
                     {
                         valid = false;

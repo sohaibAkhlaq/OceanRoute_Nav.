@@ -16,12 +16,11 @@
 using namespace std;
 using namespace sf;
 
-
 // Arrow drawing
 void drawArrow(RenderWindow &window, float x1, float y1, float x2, float y2,
                Color color = Color::Yellow, float thickness = 1.f)
 {
-    Vector2f dir(x2 - x1, y2 - y1); // ← Fixed: was "y 1"
+    Vector2f dir(x2 - x1, y2 - y1);
     float length = sqrt(dir.x * dir.x + dir.y * dir.y);
     if (length < 1.f)
         return;
@@ -49,7 +48,7 @@ void drawPathSummary(RenderWindow &window, const Font &font,
                      const vector<PathStep> &path, float panelX, float panelWidth, float y)
 {
     int totalCost = 0;
-    long long totalMinutes = 0; // changed to long long for consistency
+    long long totalMinutes = 0;
 
     for (auto &step : path)
     {
@@ -58,7 +57,7 @@ void drawPathSummary(RenderWindow &window, const Font &font,
 
         long long duration = step.arriveTime - step.departTime;
         if (duration < 0)
-            duration += 1440; // handle overnight trips
+            duration += 1440;
 
         if (isTravel)
             totalCost += step.travelCost;
@@ -71,10 +70,9 @@ void drawPathSummary(RenderWindow &window, const Font &font,
     string summary = "Cost: $" + to_string(totalCost) +
                      "\nDuration: " + minutesToString(totalMinutes);
 
-    Text text(summary, font, 16); // smaller font
+    Text text(summary, font, 16);
     text.setFillColor(Color::White);
 
-    // Center horizontally in panel
     FloatRect bounds = text.getLocalBounds();
     float centerX = panelX + (panelWidth - bounds.width) / 2.f;
     text.setPosition(centerX, y);
@@ -86,12 +84,53 @@ void drawPathSummary(RenderWindow &window, const Font &font,
 struct Dropdown
 {
     vector<string> items;
+    vector<bool> selected; // For multi-select
     float x = 0, y = 0, width = 300.f, itemHeight = 44.f;
     int maxVisible = 8;
     float alpha = 0.f, scrollOffset = 0.f;
     int hovered = -1;
     bool open = false;
+    bool multiSelect = false;
+
     FloatRect getBounds() const { return FloatRect(x, y, width, itemHeight * maxVisible + 10); }
+
+    void clearSelection()
+    {
+        fill(selected.begin(), selected.end(), false);
+    }
+
+    vector<string> getSelectedItems() const
+    {
+        vector<string> result;
+        for (size_t i = 0; i < items.size(); ++i)
+        {
+            if (selected[i])
+            {
+                result.push_back(items[i]);
+            }
+        }
+        return result;
+    }
+
+    string getDisplayText() const
+    {
+        auto selectedItems = getSelectedItems();
+        if (selectedItems.empty())
+            return "";
+
+        string result;
+        for (size_t i = 0; i < min(selectedItems.size(), size_t(2)); ++i)
+        {
+            if (i > 0)
+                result += ", ";
+            result += selectedItems[i];
+        }
+        if (selectedItems.size() > 2)
+        {
+            result += " ... (+" + to_string(selectedItems.size() - 2) + ")";
+        }
+        return result;
+    }
 };
 
 struct SelectBox
@@ -114,8 +153,30 @@ vector<vector<PathStep>> allPaths;
 // Scrollable details panel
 RectangleShape detailsBox, detailsScrollTrack;
 RectangleShape detailsScrollThumb;
-float detailsScrollOffset = 0.f; // ← Fixed typo: vekdetailsScrollOffset -> detailsScrollOffset
+float detailsScrollOffset = 0.f;
 const float detailsLineHeight = 78.f;
+
+// Customization panel variables
+vector<string> preferredCompanies;
+vector<string> avoidPortsList;
+long long maxVoyageMinutes = 0;
+string maxVoyageInput = "";
+bool applyCustomization = false;
+
+// Input boxes for customization
+struct InputBox
+{
+    RectangleShape box;
+    Text text;
+    string content;
+    string placeholder;
+    bool active = false;
+};
+
+InputBox maxVoyageInputBox;
+
+// Customization dropdowns
+SelectBox companiesSelect, avoidPortsSelect;
 
 int main()
 {
@@ -146,16 +207,16 @@ int main()
     bool panelOpen = false;
     float slideSpeed = 1200.f;
 
-    // NEW: Collapsible Route Details Panel with smooth slide
+    // Collapsible Route Details Panel with smooth slide
     bool detailsPanelOpen = false;
     bool detailsPanelClosing = false;
-    float detailsPanelOffset = -panelWidth; // For smooth sliding
+    float detailsPanelOffset = -panelWidth;
     const float detailsSlideSpeed = 1800.f;
 
-    // === ADD THESE LINES ONLY (near detailsPanel variables) ===
+    // Customize Panel variables
     bool customizePanelOpen = false;
     bool customizePanelClosing = false;
-    float customizePanelOffset = -panelWidth; // starts hidden left
+    float customizePanelOffset = -panelWidth;
     const float customizeSlideSpeed = 1800.f;
 
     RectangleShape toggleBtn, minBtn, closeBtn, continueBtn, showAllBtn;
@@ -172,11 +233,35 @@ int main()
     setupInputBox(detailsToggleBtn, detailsToggleTxt, font, "Route Details >", Vector2f(0, 0), Vector2f(panelWidth - 40, 50), Color(70, 70, 90), Color::White, 20);
     setupInputBox(detailsBackBtn, detailsBackTxt, font, "< Back", Vector2f(0, 0), Vector2f(80, 50), Color(100, 60, 60), Color::White, 20);
 
-    RectangleShape customizeToggleBtn, customizeBackBtn;
-    Text customizeToggleTxt, customizeBackTxt;
+    RectangleShape customizeToggleBtn, customizeBackBtn, applyCustomizationBtn, resetCustomizationBtn;
+    Text customizeToggleTxt, customizeBackTxt, applyCustomizationTxt, resetCustomizationTxt;
 
     setupInputBox(customizeToggleBtn, customizeToggleTxt, font, "Customize Path >", Vector2f(0, 0), Vector2f(panelWidth - 40, 50), Color(70, 70, 90), Color::White, 20);
     setupInputBox(customizeBackBtn, customizeBackTxt, font, "< Back", Vector2f(0, 0), Vector2f(80, 50), Color(100, 60, 60), Color::White, 20);
+    setupInputBox(applyCustomizationBtn, applyCustomizationTxt, font, "Apply Filters", Vector2f(0, 0), Vector2f(panelWidth - 100, 50), Color(70, 120, 70), Color::White, 18);
+    setupInputBox(resetCustomizationBtn, resetCustomizationTxt, font, "Reset", Vector2f(0, 0), Vector2f(80, 50), Color(120, 70, 70), Color::White, 18);
+
+    // Initialize customization dropdowns
+    companiesSelect.placeholder = "Select companies...";
+    companiesSelect.box = RectangleShape(Vector2f(panelWidth - 60, 40));
+    companiesSelect.arrow = Text("V", font, 28);
+    companiesSelect.arrow.setFillColor(Color(180, 180, 180));
+    companiesSelect.dropdown.multiSelect = true;
+
+    avoidPortsSelect.placeholder = "Select ports to avoid...";
+    avoidPortsSelect.box = RectangleShape(Vector2f(panelWidth - 60, 40));
+    avoidPortsSelect.arrow = Text("V", font, 28);
+    avoidPortsSelect.arrow.setFillColor(Color(180, 180, 180));
+    avoidPortsSelect.dropdown.multiSelect = true;
+
+    // Initialize max voyage input box
+    maxVoyageInputBox.box = RectangleShape(Vector2f(panelWidth - 60, 40));
+    maxVoyageInputBox.box.setFillColor(Color(50, 50, 70));
+    maxVoyageInputBox.box.setOutlineThickness(2);
+    maxVoyageInputBox.box.setOutlineColor(Color(80, 80, 100));
+    maxVoyageInputBox.placeholder = "e.g., 480 (8 hours)";
+    maxVoyageInputBox.text = Text("", font, 16);
+    maxVoyageInputBox.text.setFillColor(Color::White);
 
     fromSelect.placeholder = "Select departure port...";
     toSelect.placeholder = "Select destination port...";
@@ -209,6 +294,16 @@ int main()
     for (PortNode *v = g.getVertices(); v; v = v->next)
         allPorts.push_back(v->name);
     sort(allPorts.begin(), allPorts.end());
+
+    // Get all companies from graph
+    vector<string> allCompanies = g.getAllCompanyNames();
+
+    // Initialize dropdown items
+    companiesSelect.dropdown.items = allCompanies;
+    companiesSelect.dropdown.selected.resize(allCompanies.size(), false);
+
+    avoidPortsSelect.dropdown.items = allPorts;
+    avoidPortsSelect.dropdown.selected.resize(allPorts.size(), false);
 
     bool showAllPaths = false;
     Clock clock, starterClock;
@@ -243,18 +338,13 @@ int main()
         }
 
         // Smooth slide for details panel
-        // Smooth slide for details panel — slides IN from LEFT (like a drawer)
         {
-
-            // Open animation — only if NOT closing
             if (detailsPanelOpen && !detailsPanelClosing && detailsPanelOffset < 0)
                 detailsPanelOffset += detailsSlideSpeed * dt;
 
-            // Close animation
             if (detailsPanelClosing && detailsPanelOffset > -panelWidth)
                 detailsPanelOffset -= detailsSlideSpeed * dt;
 
-            // When animation finished -> really close it
             if (detailsPanelClosing && detailsPanelOffset <= -panelWidth + 10.f)
             {
                 detailsPanelOpen = false;
@@ -265,8 +355,8 @@ int main()
             detailsPanelOffset = clamp(detailsPanelOffset, -panelWidth, 0.f);
         }
 
+        // Smooth slide for customize panel
         {
-            // === CUSTOMIZE PANEL SMOOTH SLIDE (same as details panel) ===
             if (customizePanelOpen && !customizePanelClosing && customizePanelOffset < 0)
                 customizePanelOffset += customizeSlideSpeed * dt;
 
@@ -300,6 +390,10 @@ int main()
                     active = &modeSelect.dropdown;
                 else if (dateSelect.dropdown.open && dateSelect.dropdown.getBounds().contains(mouse))
                     active = &dateSelect.dropdown;
+                else if (companiesSelect.dropdown.open && companiesSelect.dropdown.getBounds().contains(mouse))
+                    active = &companiesSelect.dropdown;
+                else if (avoidPortsSelect.dropdown.open && avoidPortsSelect.dropdown.getBounds().contains(mouse))
+                    active = &avoidPortsSelect.dropdown;
 
                 if (active && active->items.size() > size_t(active->maxVisible))
                 {
@@ -310,25 +404,38 @@ int main()
 
                 if (detailsPanelOpen && detailsBox.getGlobalBounds().contains(mouse))
                 {
-                    // Number of steps (travel steps + waiting steps)
                     int steps = allPaths.empty() ? 0 : allPaths[currentPathIndex].size();
-
-                    // Total content height
                     float contentHeight = steps * detailsLineHeight + 300;
-
-                    // Viewport height
                     float viewHeight = dm.height - 220;
 
                     if (contentHeight > viewHeight)
                     {
                         float maxOffset = contentHeight - viewHeight;
-
-                        // Wheel scrolling
                         detailsScrollOffset -= event.mouseWheelScroll.delta * 45.f;
-
-                        // Clamp scroll range
                         detailsScrollOffset = clamp(detailsScrollOffset, 0.f, maxOffset);
                     }
+                }
+            }
+
+            // Handle text input for max voyage time
+            if (event.type == Event::TextEntered && (customizePanelOpen || customizePanelClosing))
+            {
+                if (maxVoyageInputBox.active)
+                {
+                    if (event.text.unicode == '\b')
+                    {
+                        if (!maxVoyageInputBox.content.empty())
+                            maxVoyageInputBox.content.pop_back();
+                    }
+                    else if (event.text.unicode >= 32 && event.text.unicode < 128)
+                    {
+                        // Only allow digits
+                        if (event.text.unicode >= '0' && event.text.unicode <= '9')
+                        {
+                            maxVoyageInputBox.content += static_cast<char>(event.text.unicode);
+                        }
+                    }
+                    maxVoyageInputBox.text.setString(maxVoyageInputBox.content);
                 }
             }
 
@@ -354,31 +461,198 @@ int main()
                     panelOpen = !panelOpen;
                     fromSelect.dropdown.open = toSelect.dropdown.open =
                         modeSelect.dropdown.open = dateSelect.dropdown.open = false;
+                    companiesSelect.dropdown.open = avoidPortsSelect.dropdown.open = false;
                     activeDropdown = nullptr;
                     detailsPanelOpen = false;
+                    customizePanelOpen = false;
                     continue;
                 }
 
                 if (!panelOpen)
                     continue;
 
+                // Handle customization panel interactions - ONLY if customization panel is actually open
+                if (customizePanelOpen && !customizePanelClosing)
+                {
+                    // Check input box clicks
+                    maxVoyageInputBox.active = maxVoyageInputBox.box.getGlobalBounds().contains(pos);
+                    maxVoyageInputBox.box.setOutlineColor(maxVoyageInputBox.active ? Color(100, 180, 255) : Color(80, 80, 100));
+
+                    // Check dropdown clicks
+                    bool hitCompanies = companiesSelect.box.getGlobalBounds().contains(pos);
+                    bool hitAvoidPorts = avoidPortsSelect.box.getGlobalBounds().contains(pos);
+
+                    if (hitCompanies && activeDropdown == nullptr)
+                    {
+                        companiesSelect.dropdown.open = !companiesSelect.dropdown.open;
+                        avoidPortsSelect.dropdown.open = false;
+                        activeDropdown = companiesSelect.dropdown.open ? &companiesSelect : nullptr;
+                        companiesSelect.dropdown.scrollOffset = 0;
+                        continue;
+                    }
+                    if (hitAvoidPorts && activeDropdown == nullptr)
+                    {
+                        avoidPortsSelect.dropdown.open = !avoidPortsSelect.dropdown.open;
+                        companiesSelect.dropdown.open = false;
+                        activeDropdown = avoidPortsSelect.dropdown.open ? &avoidPortsSelect : nullptr;
+                        avoidPortsSelect.dropdown.scrollOffset = 0;
+                        continue;
+                    }
+
+                    // Handle dropdown item selection for multi-select
+                    auto handleMultiSelect = [&](SelectBox &selectBox)
+                    {
+                        if (!selectBox.dropdown.open)
+                            return false;
+
+                        int start = (int)(selectBox.dropdown.scrollOffset / selectBox.dropdown.itemHeight);
+
+                        for (int i = 0; i < selectBox.dropdown.maxVisible && start + i < (int)selectBox.dropdown.items.size(); ++i)
+                        {
+                            FloatRect r(selectBox.dropdown.x + 8, selectBox.dropdown.y + 8 + i * selectBox.dropdown.itemHeight,
+                                        selectBox.dropdown.width - 16, selectBox.dropdown.itemHeight - 8);
+
+                            if (r.contains(pos))
+                            {
+                                int idx = start + i;
+                                selectBox.dropdown.selected[idx] = !selectBox.dropdown.selected[idx];
+                                selectBox.selected = selectBox.dropdown.getDisplayText();
+                                return true;
+                            }
+                        }
+                        return false;
+                    };
+
+                    if (handleMultiSelect(companiesSelect) || handleMultiSelect(avoidPortsSelect))
+                    {
+                        continue;
+                    }
+
+                    // Close customization dropdowns if clicking outside
+                    bool clickedInsideCompanies = companiesSelect.dropdown.open && companiesSelect.dropdown.getBounds().contains(pos);
+                    bool clickedInsideAvoidPorts = avoidPortsSelect.dropdown.open && avoidPortsSelect.dropdown.getBounds().contains(pos);
+
+                    if (!clickedInsideCompanies && !clickedInsideAvoidPorts &&
+                        !hitCompanies && !hitAvoidPorts &&
+                        (companiesSelect.dropdown.open || avoidPortsSelect.dropdown.open))
+                    {
+                        companiesSelect.dropdown.open = false;
+                        avoidPortsSelect.dropdown.open = false;
+                        activeDropdown = nullptr;
+                        continue;
+                    }
+
+                    if (customizeBackBtn.getGlobalBounds().contains(pos))
+                    {
+                        customizePanelClosing = true;
+                    }
+                    else if (applyCustomizationBtn.getGlobalBounds().contains(pos))
+                    {
+                        // Get selected companies
+                        preferredCompanies = companiesSelect.dropdown.getSelectedItems();
+
+                        // Get selected avoid ports
+                        avoidPortsList = avoidPortsSelect.dropdown.getSelectedItems();
+
+                        // Parse max voyage minutes
+                        if (!maxVoyageInputBox.content.empty())
+                        {
+                            try
+                            {
+                                maxVoyageMinutes = stoll(maxVoyageInputBox.content);
+                            }
+                            catch (...)
+                            {
+                                maxVoyageMinutes = 0;
+                            }
+                        }
+                        else
+                        {
+                            maxVoyageMinutes = 0;
+                        }
+
+                        applyCustomization = true;
+
+                        // Recalculate paths with filters
+                        if (!fromSelect.selected.empty() && !toSelect.selected.empty())
+                        {
+                            allPaths = g.filteredPaths(
+                                fromSelect.selected,
+                                toSelect.selected,
+                                dateSelect.selected,
+                                preferredCompanies,
+                                avoidPortsList,
+                                maxVoyageMinutes);
+                            currentPathIndex = 0;
+                            detailsScrollOffset = 0;
+
+                            // Force immediate UI update by clearing any pending panel states
+                            if (allPaths.empty())
+                            {
+                                // Close details panel if no paths available
+                                detailsPanelOpen = false;
+                                detailsPanelClosing = false;
+                                detailsPanelOffset = -panelWidth;
+                            }
+                        }
+                    }
+                    else if (resetCustomizationBtn.getGlobalBounds().contains(pos))
+                    {
+                        // Reset all inputs
+                        companiesSelect.dropdown.clearSelection();
+                        companiesSelect.selected = "";
+                        avoidPortsSelect.dropdown.clearSelection();
+                        avoidPortsSelect.selected = "";
+                        maxVoyageInputBox.content = "";
+                        maxVoyageInputBox.text.setString("");
+                        preferredCompanies.clear();
+                        avoidPortsList.clear();
+                        maxVoyageMinutes = 0;
+                        applyCustomization = false;
+
+                        // Recalculate paths without filters
+                        if (!fromSelect.selected.empty() && !toSelect.selected.empty())
+                        {
+                            if (modeSelect.selected == "All Possible Paths")
+                                allPaths = g.allValidPaths(fromSelect.selected, toSelect.selected, dateSelect.selected);
+                            else if (modeSelect.selected == "Optimal Path")
+                            {
+                                auto D_PATH = g.dijkstraPath(fromSelect.selected, toSelect.selected, dateSelect.selected);
+                                allPaths.push_back(D_PATH);
+                            }
+                            else
+                            {
+                                auto D_PATH = g.dijkstraFastestPath(fromSelect.selected, toSelect.selected, dateSelect.selected);
+                                allPaths.push_back(D_PATH);
+                            }
+                            currentPathIndex = 0;
+                            detailsScrollOffset = 0;
+                        }
+                    }
+
+                    // IMPORTANT: Only continue to other interactions if we haven't handled anything in customization panel
+                    // This prevents blocking other UI elements when customization panel is open
+                    bool handledCustomizationAction =
+                        hitCompanies || hitAvoidPorts ||
+                        companiesSelect.dropdown.open || avoidPortsSelect.dropdown.open ||
+                        customizeBackBtn.getGlobalBounds().contains(pos) ||
+                        applyCustomizationBtn.getGlobalBounds().contains(pos) ||
+                        resetCustomizationBtn.getGlobalBounds().contains(pos) ||
+                        maxVoyageInputBox.active;
+
+                    if (handledCustomizationAction)
+                    {
+                        continue;
+                    }
+                }
+
                 // BLOCK ALL OTHER BUTTONS WHEN DETAILS PANEL IS OPEN OR CLOSING
                 if (detailsPanelOpen || detailsPanelClosing)
                 {
                     if (detailsBackBtn.getGlobalBounds().contains(pos))
                     {
-                        detailsPanelClosing = true; // start closing
+                        detailsPanelClosing = true;
                         detailsScrollOffset = 0.f;
-                    }
-                    continue;
-                }
-
-                if (customizePanelOpen || customizePanelClosing)
-                {
-                    if (customizeBackBtn.getGlobalBounds().contains(pos))
-                    {
-                        customizePanelClosing = true; // start closing
-                        // customizeScrollOffset = 0.f;
                     }
                     continue;
                 }
@@ -388,22 +662,36 @@ int main()
                     fromSelect.dropdown.open ||
                     toSelect.dropdown.open ||
                     modeSelect.dropdown.open ||
-                    dateSelect.dropdown.open;
+                    dateSelect.dropdown.open ||
+                    companiesSelect.dropdown.open ||
+                    avoidPortsSelect.dropdown.open;
 
                 if (anyDropdownOpen)
                 {
-                    // Only allow clicks inside active dropdown
-                    if (!(activeDropdown &&
-                          (activeDropdown->dropdown.getBounds().contains(pos) ||
-                           activeDropdown->box.getGlobalBounds().contains(pos))))
+                    // Check if click is inside any open dropdown or its corresponding box
+                    bool clickedInsideDropdown = false;
+
+                    if (fromSelect.dropdown.open && (fromSelect.dropdown.getBounds().contains(pos) || fromSelect.box.getGlobalBounds().contains(pos)))
+                        clickedInsideDropdown = true;
+                    else if (toSelect.dropdown.open && (toSelect.dropdown.getBounds().contains(pos) || toSelect.box.getGlobalBounds().contains(pos)))
+                        clickedInsideDropdown = true;
+                    else if (modeSelect.dropdown.open && (modeSelect.dropdown.getBounds().contains(pos) || modeSelect.box.getGlobalBounds().contains(pos)))
+                        clickedInsideDropdown = true;
+                    else if (dateSelect.dropdown.open && (dateSelect.dropdown.getBounds().contains(pos) || dateSelect.box.getGlobalBounds().contains(pos)))
+                        clickedInsideDropdown = true;
+                    else if (companiesSelect.dropdown.open && (companiesSelect.dropdown.getBounds().contains(pos) || companiesSelect.box.getGlobalBounds().contains(pos)))
+                        clickedInsideDropdown = true;
+                    else if (avoidPortsSelect.dropdown.open && (avoidPortsSelect.dropdown.getBounds().contains(pos) || avoidPortsSelect.box.getGlobalBounds().contains(pos)))
+                        clickedInsideDropdown = true;
+
+                    if (!clickedInsideDropdown)
                     {
-                        // ----------------- NOW handle dropdown collapse -----------------
                         fromSelect.dropdown.open = toSelect.dropdown.open =
-                            modeSelect.dropdown.open = dateSelect.dropdown.open = false;
+                            modeSelect.dropdown.open = dateSelect.dropdown.open =
+                                companiesSelect.dropdown.open = avoidPortsSelect.dropdown.open = false;
 
                         activeDropdown = nullptr;
-
-                        continue; // block ALL buttons like detailsToggleBtn, prevBtn, nextBtn, showAllBtn
+                        continue;
                     }
                 }
 
@@ -417,7 +705,8 @@ int main()
                 {
                     dateSelect.dropdown.open = !dateSelect.dropdown.open;
                     fromSelect.dropdown.open = toSelect.dropdown.open =
-                        modeSelect.dropdown.open = false;
+                        modeSelect.dropdown.open = companiesSelect.dropdown.open =
+                            avoidPortsSelect.dropdown.open = false;
 
                     activeDropdown = dateSelect.dropdown.open ? &dateSelect : nullptr;
                     dateSelect.dropdown.scrollOffset = 0;
@@ -427,7 +716,8 @@ int main()
                 {
                     fromSelect.dropdown.open = !fromSelect.dropdown.open;
                     toSelect.dropdown.open = modeSelect.dropdown.open =
-                        dateSelect.dropdown.open = false;
+                        dateSelect.dropdown.open = companiesSelect.dropdown.open =
+                            avoidPortsSelect.dropdown.open = false;
 
                     activeDropdown = fromSelect.dropdown.open ? &fromSelect : nullptr;
                     fromSelect.dropdown.scrollOffset = 0;
@@ -437,7 +727,8 @@ int main()
                 {
                     toSelect.dropdown.open = !toSelect.dropdown.open;
                     fromSelect.dropdown.open = modeSelect.dropdown.open =
-                        dateSelect.dropdown.open = false;
+                        dateSelect.dropdown.open = companiesSelect.dropdown.open =
+                            avoidPortsSelect.dropdown.open = false;
 
                     activeDropdown = toSelect.dropdown.open ? &toSelect : nullptr;
                     toSelect.dropdown.scrollOffset = 0;
@@ -447,7 +738,8 @@ int main()
                 {
                     modeSelect.dropdown.open = !modeSelect.dropdown.open;
                     fromSelect.dropdown.open = toSelect.dropdown.open =
-                        dateSelect.dropdown.open = false;
+                        dateSelect.dropdown.open = companiesSelect.dropdown.open =
+                            avoidPortsSelect.dropdown.open = false;
 
                     activeDropdown = modeSelect.dropdown.open ? &modeSelect : nullptr;
                     modeSelect.dropdown.scrollOffset = 0;
@@ -478,10 +770,9 @@ int main()
                         continue;
                     }
 
-                    if (!allPaths.empty() && customizeToggleBtn.getGlobalBounds().contains(pos))
+                    if (!allPaths.empty() && modeSelect.selected == "All Possible Paths" && customizeToggleBtn.getGlobalBounds().contains(pos))
                     {
                         customizePanelOpen = true;
-                        // detailsScrollOffset = 0.f;
                         continue;
                     }
                 }
@@ -510,6 +801,11 @@ int main()
                             currentPathIndex = 0;
                             detailsScrollOffset = 0;
                             detailsPanelOpen = false;
+                            customizePanelOpen = false;
+
+                            // FIX: Reset customization when user changes selection
+                            applyCustomization = false;
+
                             return true;
                         }
                     }
@@ -520,10 +816,42 @@ int main()
                     pick(fromSelect.dropdown, fromSelect.selected) ||
                     pick(toSelect.dropdown, toSelect.selected) ||
                     pick(modeSelect.dropdown, modeSelect.selected);
+
+                if (modeSelect.selected != "All Possible Paths")
+                {
+                }
             }
         }
 
-        auto updateDrop = [&](Dropdown &dd, bool wantOpen)
+        auto updateDrop = [&](SelectBox &selectBox, bool wantOpen)
+        {
+            selectBox.dropdown.open = wantOpen;
+            selectBox.dropdown.alpha += (wantOpen ? 30.f : -30.f) * dt;
+            selectBox.dropdown.alpha = clamp(selectBox.dropdown.alpha, 0.f, 1.f);
+            if (!wantOpen && selectBox.dropdown.alpha < 0.01f)
+                return;
+
+            selectBox.dropdown.x = customizePanelOffset + 30;
+            selectBox.dropdown.width = panelWidth - 60;
+
+            // Update display text
+            selectBox.selected = selectBox.dropdown.getDisplayText();
+
+            selectBox.dropdown.hovered = -1;
+            int start = (int)(selectBox.dropdown.scrollOffset / selectBox.dropdown.itemHeight);
+            for (int i = 0; i < selectBox.dropdown.maxVisible && start + i < (int)selectBox.dropdown.items.size(); ++i)
+            {
+                FloatRect r(selectBox.dropdown.x + 8, selectBox.dropdown.y + 8 + i * selectBox.dropdown.itemHeight,
+                            selectBox.dropdown.width - 16, selectBox.dropdown.itemHeight - 8);
+                if (r.contains(mouse))
+                {
+                    selectBox.dropdown.hovered = start + i;
+                    break;
+                }
+            }
+        };
+
+        auto updateMainDrop = [&](Dropdown &dd, bool wantOpen, float yPos)
         {
             dd.open = wantOpen;
             dd.alpha += (wantOpen ? 30.f : -30.f) * dt;
@@ -532,10 +860,7 @@ int main()
                 return;
 
             dd.x = panelX + 20;
-            dd.y = (&dd == &dateSelect.dropdown) ? 120 : (&dd == &fromSelect.dropdown) ? 220
-                                                     : (&dd == &toSelect.dropdown)     ? 320
-                                                     : (&dd == &modeSelect.dropdown)   ? 420
-                                                                                       : 0;
+            dd.y = yPos;
             dd.width = panelWidth - 40;
             dd.items = (&dd == &modeSelect.dropdown) ? modeSelect.dropdown.items : (&dd == &dateSelect.dropdown) ? days
                                                                                                                  : allPorts;
@@ -555,20 +880,23 @@ int main()
 
         if (panelOpen)
         {
-            updateDrop(dateSelect.dropdown, dateSelect.dropdown.open);
-            updateDrop(fromSelect.dropdown, fromSelect.dropdown.open);
-            updateDrop(toSelect.dropdown, toSelect.dropdown.open);
-            updateDrop(modeSelect.dropdown, modeSelect.dropdown.open);
+            updateMainDrop(dateSelect.dropdown, dateSelect.dropdown.open, 120);
+            updateMainDrop(fromSelect.dropdown, fromSelect.dropdown.open, 220);
+            updateMainDrop(toSelect.dropdown, toSelect.dropdown.open, 320);
+            updateMainDrop(modeSelect.dropdown, modeSelect.dropdown.open, 420);
+        }
+
+        if (customizePanelOpen)
+        {
+            updateDrop(companiesSelect, companiesSelect.dropdown.open);
+            updateDrop(avoidPortsSelect, avoidPortsSelect.dropdown.open);
         }
 
         if (panelOpen && !fromSelect.selected.empty() && !toSelect.selected.empty())
         {
             bool needRecalc = allPaths.empty();
-            // ||
-            //                   (modeSelect.selected == "All Possible Paths" && allPaths.size() <= 1) ||
-            //                   (modeSelect.selected == "Optimal Path");
 
-            if (needRecalc)
+            if (needRecalc && !applyCustomization)
             {
                 allPaths.clear();
                 if (modeSelect.selected == "All Possible Paths")
@@ -585,6 +913,12 @@ int main()
                 }
                 currentPathIndex = 0;
                 detailsScrollOffset = 0;
+            }
+
+            // FIX: Reset customization if paths become empty after changing selection
+            if (applyCustomization && allPaths.empty())
+            {
+                applyCustomization = false;
             }
         }
 
@@ -607,6 +941,7 @@ int main()
         window.clear(Color(10, 15, 30));
         window.draw(mapSprite);
 
+        // Draw all routes first (background)
         if (showAllPaths)
         {
             for (PortNode *v : g)
@@ -616,45 +951,98 @@ int main()
                 {
                     PortNode *d = g.findVertexByName(e->dest);
                     if (d)
-                        drawArrow(window, x1, y1, mapX(d->portData.lon), mapY(d->portData.lat), Color(255, 255, 255, 80), 1.f);
+                    {
+                        Color arrowColor = Color(255, 255, 255, 80); // Default semi-transparent white
+
+                        // Check if this route should be avoided (either port is in avoid list)
+                        if (find(avoidPortsList.begin(), avoidPortsList.end(), v->name) != avoidPortsList.end() ||
+                            find(avoidPortsList.begin(), avoidPortsList.end(), d->name) != avoidPortsList.end())
+                        {
+                            arrowColor = Color(255, 100, 100, 120); // Light red for avoided routes
+                        }
+                        // Check if this route uses preferred company
+                        else if (!preferredCompanies.empty() && applyCustomization &&
+                                 find(preferredCompanies.begin(), preferredCompanies.end(), e->company) != preferredCompanies.end())
+                        {
+                            arrowColor = Color(100, 255, 100, 120); // Light green for preferred company routes
+                        }
+                        else if (!preferredCompanies.empty() && applyCustomization)
+                        {
+                            arrowColor = Color(255, 100, 100, 120);
+                        }
+
+                        drawArrow(window, x1, y1, mapX(d->portData.lon), mapY(d->portData.lat), arrowColor, 1.f);
+                    }
                 }
             }
         }
 
+        // Draw ports on top
         for (auto v : g)
         {
             float x = mapX(v->portData.lon), y = mapY(v->portData.lat);
             CircleShape c(6);
-            c.setFillColor((v->name == fromSelect.selected || v->name == toSelect.selected) ? Color::Red : Color(80, 90, 170));
+
+            // Highlight avoided ports in red
+            if (find(avoidPortsList.begin(), avoidPortsList.end(), v->name) != avoidPortsList.end())
+            {
+                c.setFillColor(Color::Red); // Avoided ports in red
+            }
+            else
+            {
+                c.setFillColor((v->name == fromSelect.selected || v->name == toSelect.selected) ? Color::Yellow : Color(80, 90, 170));
+            }
+
             c.setPosition(x - 6, y - 6);
             window.draw(c);
 
             Text t(v->name, font, 14);
-            t.setFillColor(Color::Black);
+            t.setFillColor(Color::White);
             t.setPosition(v->portData.left ? x - 12 - t.getLocalBounds().width : x + 12, y - 8);
             window.draw(t);
         }
 
-        if (!allPaths.empty())
+        // Draw selected path on top of everything
+        // Draw selected path on top of everything - ONLY if paths exist
+        if (!allPaths.empty() && currentPathIndex < allPaths.size())
         {
             auto &path = allPaths[currentPathIndex];
 
-            for (auto &step : path) // path is now vector<PathStep>
+            for (auto &step : path)
             {
-                // Skip waiting steps — they have no movement
                 if (step.isWaiting || step.to == nullptr)
                     continue;
 
-                // Draw arrow from -> to
+                Color routeColor = Color::Cyan;
+                if (applyCustomization)
+                {
+                    // Highlight filtered routes
+                    if (step.edge && find(preferredCompanies.begin(), preferredCompanies.end(), step.edge->company) != preferredCompanies.end())
+                    {
+                        routeColor = Color::Green; // Preferred company routes in solid green
+                    }
+                    else if (modeSelect.selected == "Optimal Path")
+                    {
+                        routeColor = Color::Yellow;
+                    }
+                }
+                else if (modeSelect.selected == "Optimal Path")
+                {
+                    routeColor = Color::Yellow;
+                }
+
                 drawArrow(
                     window,
                     mapX(step.from->portData.lon), mapY(step.from->portData.lat),
                     mapX(step.to->portData.lon), mapY(step.to->portData.lat),
-                    modeSelect.selected == "Optimal Path"
-                        ? Color::Yellow
-                        : Color::Cyan,
+                    routeColor,
                     5.f);
             }
+        }
+        else if (allPaths.empty() && applyCustomization)
+        {
+            // No paths available with current filters - ensure nothing is drawn
+            // This prevents the previous path from remaining visible
         }
 
         RectangleShape panel(Vector2f(panelWidth, dm.height));
@@ -762,9 +1150,17 @@ int main()
                 window.draw(nextTxt);
             }
 
-            if (!allPaths.empty())
+            if (!allPaths.empty() && currentPathIndex < allPaths.size())
             {
                 drawPathSummary(window, font, allPaths[currentPathIndex], panelX, panelWidth, 505);
+            }
+            else if (applyCustomization && allPaths.empty())
+            {
+                // Show "No paths found" message when filters result in no paths
+                Text noPathText("No paths found with current filters", font, 16);
+                noPathText.setFillColor(Color::Red);
+                noPathText.setPosition(panelX + 35, 505);
+                window.draw(noPathText);
             }
 
             if (!allPaths.empty() && !detailsPanelOpen && !customizePanelOpen)
@@ -774,7 +1170,6 @@ int main()
                 window.draw(detailsToggleTxt);
             }
 
-            // === CUSTOMIZE PANEL TOGGLE BUTTON (below Route Details) ===
             if (!allPaths.empty() && !detailsPanelOpen && !customizePanelOpen)
             {
                 setupInputBox(customizeToggleBtn, customizeToggleTxt, font, "Customize Path >",
@@ -790,7 +1185,7 @@ int main()
             window.draw(showAllBtn);
             window.draw(showAllTxt);
 
-            // FULL SCREEN DETAILS PANEL WITH SMOOTH SLIDE
+            // DETAILS PANEL
             if ((detailsPanelOpen || detailsPanelClosing) && !allPaths.empty())
             {
                 RectangleShape detailsOverlay(Vector2f(panelWidth, dm.height));
@@ -813,7 +1208,6 @@ int main()
                 title.setPosition(detailsPanelOffset + 20, 80);
                 window.draw(title);
 
-                // Inner scrolling panel
                 detailsBox = RectangleShape(Vector2f(panelWidth - 40, dm.height - 200));
                 detailsBox.setPosition(detailsPanelOffset + 20, 130);
                 detailsBox.setFillColor(Color(40, 40, 50, 240));
@@ -834,7 +1228,6 @@ int main()
                     bool isTravel = (!step.isWaiting && step.edge != nullptr);
                     bool isWait = step.isWaiting;
 
-                    // ----- COMPUTE TIME + COST -----
                     long long duration = step.arriveTime - step.departTime;
                     if (duration < 0)
                         duration += 1440;
@@ -846,7 +1239,6 @@ int main()
 
                     totalMinutes += duration;
 
-                    // ----- DRAW ROW -----
                     if (y + 85 > view.top && y < view.top + view.height)
                     {
                         RectangleShape rowBg(Vector2f(panelWidth - 60, detailsLineHeight - 10));
@@ -854,7 +1246,6 @@ int main()
                         rowBg.setFillColor(i % 2 == 0 ? Color(50, 50, 60, 180) : Color(45, 45, 55, 180));
                         window.draw(rowBg);
 
-                        // ▓▓ WAITING STEP
                         if (isWait)
                         {
                             Text leg("WAIT at " + step.from->name, font, 18);
@@ -874,7 +1265,6 @@ int main()
                         }
                         else
                         {
-                            // ▓▓ TRAVEL STEP
                             Text leg(step.from->name + " -> " + step.to->name, font, 18);
                             leg.setFillColor(Color::White);
                             leg.setPosition(detailsPanelOffset + 40, y + 8);
@@ -900,7 +1290,6 @@ int main()
                     y += detailsLineHeight;
                 }
 
-                // ----- TOTALS -----
                 Text total("TOTAL: $" + to_string(totalCost) +
                                "\nDuration: " + minutesToString(totalMinutes),
                            font, 22);
@@ -910,7 +1299,6 @@ int main()
                 if (y + 60 < view.top + view.height)
                     window.draw(total);
 
-                // ----- FINAL ARRIVAL -----
                 if (!path.empty() && path.back().edge)
                 {
                     Text arrive("Final Arrival: " +
@@ -926,7 +1314,6 @@ int main()
                         window.draw(arrive);
                 }
 
-                // ----- SCROLL BAR -----
                 float contentHeight = path.size() * detailsLineHeight + 300;
 
                 if (contentHeight > dm.height - 200)
@@ -950,7 +1337,7 @@ int main()
                 }
             }
 
-            // === CUSTOMIZE PANEL (FULL SCREEN SLIDE-IN) ===
+            // CUSTOMIZATION PANEL
             if ((customizePanelOpen || customizePanelClosing) && !allPaths.empty())
             {
                 RectangleShape customizeOverlay(Vector2f(panelWidth, dm.height));
@@ -972,10 +1359,135 @@ int main()
                 customizeTitle.setPosition(customizePanelOffset + 20, 80);
                 window.draw(customizeTitle);
 
-                Text comingSoon("Feature coming soon...", font, 22);
-                comingSoon.setFillColor(Color(180, 220, 180));
-                comingSoon.setPosition(customizePanelOffset + 40, 200);
-                window.draw(comingSoon);
+                // Position customization dropdowns
+                companiesSelect.box.setPosition(customizePanelOffset + 30, 140);
+                avoidPortsSelect.box.setPosition(customizePanelOffset + 30, 220);
+                companiesSelect.dropdown.y = 190;
+                avoidPortsSelect.dropdown.y = 270;
+
+                // Preferred Companies Section
+                Text companiesLabel("Preferred Shipping Companies:", font, 18);
+                companiesLabel.setFillColor(Color::White);
+                companiesLabel.setPosition(customizePanelOffset + 30, 110);
+                window.draw(companiesLabel);
+
+                companiesSelect.box.setFillColor(companiesSelect.dropdown.open ? Color(70, 70, 90) : Color(90, 90, 150));
+                companiesSelect.box.setOutlineThickness(2);
+                companiesSelect.box.setOutlineColor(companiesSelect.dropdown.open ? Color(100, 180, 255) : Color(80, 80, 100));
+                window.draw(companiesSelect.box);
+
+                companiesSelect.text = Text(companiesSelect.selected.empty() ? companiesSelect.placeholder : companiesSelect.selected, font, 16);
+                companiesSelect.text.setFillColor(companiesSelect.selected.empty() ? Color(150, 150, 150) : Color::White);
+                companiesSelect.text.setPosition(customizePanelOffset + 40, 150);
+                window.draw(companiesSelect.text);
+
+                companiesSelect.arrow.setPosition(customizePanelOffset + panelWidth - 90, 145);
+                window.draw(companiesSelect.arrow);
+
+                // Avoid Ports Section
+                Text avoidPortsLabel("Ports to Avoid:", font, 18);
+                avoidPortsLabel.setFillColor(Color::White);
+                avoidPortsLabel.setPosition(customizePanelOffset + 30, 190);
+                window.draw(avoidPortsLabel);
+
+                avoidPortsSelect.box.setFillColor(avoidPortsSelect.dropdown.open ? Color(70, 70, 90) : Color(90, 90, 150));
+                avoidPortsSelect.box.setOutlineThickness(2);
+                avoidPortsSelect.box.setOutlineColor(avoidPortsSelect.dropdown.open ? Color(100, 180, 255) : Color(80, 80, 100));
+                window.draw(avoidPortsSelect.box);
+
+                avoidPortsSelect.text = Text(avoidPortsSelect.selected.empty() ? avoidPortsSelect.placeholder : avoidPortsSelect.selected, font, 16);
+                avoidPortsSelect.text.setFillColor(avoidPortsSelect.selected.empty() ? Color(150, 150, 150) : Color::White);
+                avoidPortsSelect.text.setPosition(customizePanelOffset + 40, 230);
+                window.draw(avoidPortsSelect.text);
+
+                avoidPortsSelect.arrow.setPosition(customizePanelOffset + panelWidth - 90, 225);
+                window.draw(avoidPortsSelect.arrow);
+
+                // Max Voyage Time Section
+                Text maxVoyageLabel("Max Voyage Time (minutes):", font, 18);
+                maxVoyageLabel.setFillColor(Color::White);
+                maxVoyageLabel.setPosition(customizePanelOffset + 30, 280);
+                window.draw(maxVoyageLabel);
+
+                Text maxVoyageHint("(e.g., 480 for 8 hours, 0 for no limit)", font, 14);
+                maxVoyageHint.setFillColor(Color(180, 180, 180));
+                maxVoyageHint.setPosition(customizePanelOffset + 30, 305);
+                window.draw(maxVoyageHint);
+
+                maxVoyageInputBox.box.setPosition(customizePanelOffset + 30, 330);
+                window.draw(maxVoyageInputBox.box);
+
+                maxVoyageInputBox.text.setPosition(customizePanelOffset + 40, 340);
+                if (maxVoyageInputBox.content.empty() && !maxVoyageInputBox.active)
+                {
+                    Text placeholder(maxVoyageInputBox.placeholder, font, 16);
+                    placeholder.setFillColor(Color(150, 150, 150));
+                    placeholder.setPosition(customizePanelOffset + 40, 340);
+                    window.draw(placeholder);
+                }
+                else
+                {
+                    window.draw(maxVoyageInputBox.text);
+                }
+
+                // Action Buttons
+                setupInputBox(applyCustomizationBtn, applyCustomizationTxt, font, "Apply Filters",
+                              Vector2f(customizePanelOffset + 30, 400),
+                              Vector2f(panelWidth - 100, 50),
+                              Color(70, 120, 70), Color::White, 18);
+                window.draw(applyCustomizationBtn);
+                window.draw(applyCustomizationTxt);
+
+                setupInputBox(resetCustomizationBtn, resetCustomizationTxt, font, "Reset",
+                              Vector2f(customizePanelOffset + panelWidth - 110, 400),
+                              Vector2f(80, 50),
+                              Color(120, 70, 70), Color::White, 18);
+                window.draw(resetCustomizationBtn);
+                window.draw(resetCustomizationTxt);
+
+                // Current Filters Status
+                Text filtersStatus("Current Filters:", font, 16);
+                filtersStatus.setFillColor(Color::White);
+                filtersStatus.setStyle(Text::Bold);
+                filtersStatus.setPosition(customizePanelOffset + 30, 470);
+                window.draw(filtersStatus);
+
+                string statusText = "";
+                if (!preferredCompanies.empty())
+                {
+                    statusText += "Companies: ";
+                    for (size_t i = 0; i < preferredCompanies.size(); ++i)
+                    {
+                        if (i > 0)
+                            statusText += ", ";
+                        statusText += preferredCompanies[i];
+                    }
+                    statusText += "\n";
+                }
+                if (!avoidPortsList.empty())
+                {
+                    statusText += "Avoid Ports: ";
+                    for (size_t i = 0; i < avoidPortsList.size(); ++i)
+                    {
+                        if (i > 0)
+                            statusText += ", ";
+                        statusText += avoidPortsList[i];
+                    }
+                    statusText += "\n";
+                }
+                if (maxVoyageMinutes > 0)
+                {
+                    statusText += "Max Voyage: " + to_string(maxVoyageMinutes) + " minutes\n";
+                }
+                if (statusText.empty())
+                {
+                    statusText = "No filters applied";
+                }
+
+                Text statusDisplay(statusText, font, 14);
+                statusDisplay.setFillColor(Color(200, 220, 200));
+                statusDisplay.setPosition(customizePanelOffset + 30, 495);
+                window.draw(statusDisplay);
             }
         }
 
@@ -1000,17 +1512,36 @@ int main()
             {
                 int idx = start + i;
                 float iy = dd.y + 5 + i * dd.itemHeight;
-                if (idx == dd.hovered)
+
+                // Highlight selected items in multi-select dropdowns
+                if (dd.multiSelect && dd.selected[idx])
+                {
+                    RectangleShape h(Vector2f(dd.width - 10, dd.itemHeight - 8));
+                    h.setPosition(dd.x + 5, iy);
+                    h.setFillColor(Color(70, 180, 70, 180)); // Green for selected
+                    window.draw(h);
+                }
+                else if (idx == dd.hovered)
                 {
                     RectangleShape h(Vector2f(dd.width - 10, dd.itemHeight - 8));
                     h.setPosition(dd.x + 5, iy);
                     h.setFillColor(Color(70, 130, 255, 180));
                     window.draw(h);
                 }
+
                 Text t(dd.items[idx], font, 19);
                 t.setFillColor(Color::White);
                 t.setPosition(dd.x + 16, iy + 8);
                 window.draw(t);
+
+                // Add checkmark for selected items in multi-select
+                if (dd.multiSelect && dd.selected[idx])
+                {
+                    Text check("✓", font, 19);
+                    check.setFillColor(Color::White);
+                    check.setPosition(dd.x + dd.width - 30, iy + 8);
+                    window.draw(check);
+                }
             }
         };
 
@@ -1018,6 +1549,8 @@ int main()
         drawDrop(fromSelect.dropdown);
         drawDrop(toSelect.dropdown);
         drawDrop(modeSelect.dropdown);
+        drawDrop(companiesSelect.dropdown);
+        drawDrop(avoidPortsSelect.dropdown);
 
         window.display();
     }
