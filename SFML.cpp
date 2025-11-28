@@ -94,15 +94,24 @@ struct Dropdown
 
     FloatRect getBounds() const { return FloatRect(x, y, width, itemHeight * maxVisible + 10); }
 
+    void ensureSelectionVector()
+    {
+        if (selected.size() != items.size())
+        {
+            selected.resize(items.size(), false);
+        }
+    }
+
     void clearSelection()
     {
+        ensureSelectionVector();
         fill(selected.begin(), selected.end(), false);
     }
 
     vector<string> getSelectedItems() const
     {
         vector<string> result;
-        for (size_t i = 0; i < items.size(); ++i)
+        for (size_t i = 0; i < items.size() && i < selected.size(); ++i) // ✅ Add bounds check
         {
             if (selected[i])
             {
@@ -111,7 +120,6 @@ struct Dropdown
         }
         return result;
     }
-
     string getDisplayText() const
     {
         auto selectedItems = getSelectedItems();
@@ -130,6 +138,11 @@ struct Dropdown
             result += " ... (+" + to_string(selectedItems.size() - 2) + ")";
         }
         return result;
+    }
+
+    bool isEmpty() const
+    {
+        return getSelectedItems().empty();
     }
 };
 
@@ -300,10 +313,10 @@ int main()
 
     // Initialize dropdown items
     companiesSelect.dropdown.items = allCompanies;
-    companiesSelect.dropdown.selected.resize(allCompanies.size(), false);
+    companiesSelect.dropdown.ensureSelectionVector(); // ✅ Ensure proper size
 
     avoidPortsSelect.dropdown.items = allPorts;
-    avoidPortsSelect.dropdown.selected.resize(allPorts.size(), false);
+    avoidPortsSelect.dropdown.ensureSelectionVector(); // ✅ Ensure proper size
 
     bool showAllPaths = false;
     Clock clock, starterClock;
@@ -515,8 +528,12 @@ int main()
                             if (r.contains(pos))
                             {
                                 int idx = start + i;
-                                selectBox.dropdown.selected[idx] = !selectBox.dropdown.selected[idx];
-                                selectBox.selected = selectBox.dropdown.getDisplayText();
+                                // ✅ Add bounds check
+                                if (idx >= 0 && idx < (int)selectBox.dropdown.selected.size())
+                                {
+                                    selectBox.dropdown.selected[idx] = !selectBox.dropdown.selected[idx];
+                                    selectBox.selected = selectBox.dropdown.getDisplayText();
+                                }
                                 return true;
                             }
                         }
@@ -593,6 +610,9 @@ int main()
                                 detailsPanelOpen = false;
                                 detailsPanelClosing = false;
                                 detailsPanelOffset = -panelWidth;
+
+                                // Keep customization panel open to show "no paths found" message
+                                // But ensure allPaths remains empty
                             }
                         }
                     }
@@ -770,9 +790,21 @@ int main()
                         continue;
                     }
 
-                    if (!allPaths.empty() && modeSelect.selected == "All Possible Paths" && customizeToggleBtn.getGlobalBounds().contains(pos))
+                    if (customizeToggleBtn.getGlobalBounds().contains(pos))
                     {
-                        customizePanelOpen = true;
+                        // cout << "Customize button clicked! From: '" << fromSelect.selected
+                        //      << "' To: '" << toSelect.selected
+                        //      << "' Mode: '" << modeSelect.selected << "'" << endl;
+
+                        if (!fromSelect.selected.empty() && !toSelect.selected.empty() && modeSelect.selected == "All Possible Paths")
+                        {
+                            customizePanelOpen = true;
+                            // cout << "Opening customization panel!" << endl;
+                        }
+                        else
+                        {
+                            // cout << "BUT conditions not met!" << endl;
+                        }
                         continue;
                     }
                 }
@@ -834,21 +866,13 @@ int main()
             selectBox.dropdown.x = customizePanelOffset + 30;
             selectBox.dropdown.width = panelWidth - 60;
 
+            // ✅ Ensure selection vector is properly sized
+            selectBox.dropdown.ensureSelectionVector();
+
             // Update display text
             selectBox.selected = selectBox.dropdown.getDisplayText();
 
-            selectBox.dropdown.hovered = -1;
-            int start = (int)(selectBox.dropdown.scrollOffset / selectBox.dropdown.itemHeight);
-            for (int i = 0; i < selectBox.dropdown.maxVisible && start + i < (int)selectBox.dropdown.items.size(); ++i)
-            {
-                FloatRect r(selectBox.dropdown.x + 8, selectBox.dropdown.y + 8 + i * selectBox.dropdown.itemHeight,
-                            selectBox.dropdown.width - 16, selectBox.dropdown.itemHeight - 8);
-                if (r.contains(mouse))
-                {
-                    selectBox.dropdown.hovered = start + i;
-                    break;
-                }
-            }
+            // ... rest of the function
         };
 
         auto updateMainDrop = [&](Dropdown &dd, bool wantOpen, float yPos)
@@ -896,6 +920,8 @@ int main()
         {
             bool needRecalc = allPaths.empty();
 
+            // Only recalculate paths if we're not applying customization filters
+            // When applyCustomization is true, we want to keep the filtered result (even if empty)
             if (needRecalc && !applyCustomization)
             {
                 allPaths.clear();
@@ -915,11 +941,12 @@ int main()
                 detailsScrollOffset = 0;
             }
 
-            // FIX: Reset customization if paths become empty after changing selection
-            if (applyCustomization && allPaths.empty())
-            {
-                applyCustomization = false;
-            }
+            // Don't reset customization automatically when paths are empty
+            // Only reset when user explicitly changes selection or clicks reset
+            // if (applyCustomization && allPaths.empty())
+            // {
+            //     applyCustomization = false;
+            // }
         }
 
         if (state == STARTER)
@@ -1163,6 +1190,7 @@ int main()
                 window.draw(noPathText);
             }
 
+            // Always show Route Details button when there are paths
             if (!allPaths.empty() && !detailsPanelOpen && !customizePanelOpen)
             {
                 setupInputBox(detailsToggleBtn, detailsToggleTxt, font, "Route Details >", Vector2f(panelX + 20, 560), Vector2f(panelWidth - 40, 50), Color(70, 70, 90), Color::White, 20);
@@ -1170,7 +1198,8 @@ int main()
                 window.draw(detailsToggleTxt);
             }
 
-            if (!allPaths.empty() && !detailsPanelOpen && !customizePanelOpen)
+            // Always show Customize Path button when from and to are selected (regardless of whether paths exist)
+            if (!fromSelect.selected.empty() && !toSelect.selected.empty() && !detailsPanelOpen && !customizePanelOpen)
             {
                 setupInputBox(customizeToggleBtn, customizeToggleTxt, font, "Customize Path >",
                               Vector2f(panelX + 20, 620), Vector2f(panelWidth - 40, 50),
@@ -1338,7 +1367,8 @@ int main()
             }
 
             // CUSTOMIZATION PANEL
-            if ((customizePanelOpen || customizePanelClosing) && !allPaths.empty())
+            // CUSTOMIZATION PANEL
+            if (customizePanelOpen || customizePanelClosing)
             {
                 RectangleShape customizeOverlay(Vector2f(panelWidth, dm.height));
                 customizeOverlay.setPosition(customizePanelOffset, 0);
