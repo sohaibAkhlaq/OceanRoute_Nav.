@@ -117,7 +117,7 @@ OceanRoute_Nav/
 
 ### 1️⃣ Clone the repository
 
-git clone https://github.com/your-username/OceanRoute_Nav.git
+git clone https://github.com/sohaibAkhlaq/OceanRoute_Nav.git
 cd OceanRoute_Nav
 
 2️⃣ Compile the project
