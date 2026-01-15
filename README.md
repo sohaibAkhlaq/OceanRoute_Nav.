@@ -74,20 +74,21 @@ This project demonstrates advanced mastery of **data structures**, **graph algor
 
 ## 📂 Project File Structure
 OceanRoute_Nav/
-├── src/ → C++ source files (main.cpp, modules, utilities)
-├── SFML/ → SFML library & dependencies
-├── Data/ → Routes.txt, PortCharges.txt
-├── Images/ → Port & route assets
-├── Font/ → Fonts for UI
-├── Music/ → Background & sound effects
-├── Videos/ → Demo recordings
-├── Others/ → Helper files
-├── Pdf/ → Documentation, reports
-├── main.cpp → Entry point
-├── RouteManager.cpp → Route booking & pathfinding logic
-├── Graph.cpp → Graph & algorithm implementations
-└── .gitignore → Git ignore file
-
+├── src/
+│ └── main.cpp
+│ └── RouteManager.cpp
+│ └── Graph.cpp
+├── SFML/
+├── Data/
+│ └── Routes.txt
+│ └── PortCharges.txt
+├── Images/
+├── Font/
+├── Music/
+├── Videos/
+├── Others/
+├── Pdf/
+└── .gitignore
 
 ---
 
