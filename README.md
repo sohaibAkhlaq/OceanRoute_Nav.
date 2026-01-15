@@ -76,19 +76,30 @@ This project demonstrates advanced mastery of **data structures**, **graph algor
 OceanRoute_Nav/
 OceanRoute_Nav/
 ├── src/
+
 │ ├── main.cpp
 │ ├── RouteManager.cpp
 │ └── Graph.cpp
+
 ├── SFML/
+
 ├── Data/
+
 │ ├── Routes.txt
 │ └── PortCharges.txt
+
 ├── Images/
+
 ├── Font/
+
 ├── Music/
+
 ├── Videos/
+
 ├── Others/
+
 ├── Pdf/
+
 └── .gitignore
 ---
 
@@ -103,9 +114,7 @@ OceanRoute_Nav/
   <a href="https://www.sfml-dev.org/">
     <img src="https://img.shields.io/badge/SFML-Graphics-orange" alt="SFML"/>
   </a>
-  <a href="https://github.com/sohaibAkhlaq/OceanRoute_Nav/stargazers">
-    <img src="https://img.shields.io/github/stars/sohaibAkhlaqOceanRoute_Nav?style=social" alt="Stars"/>
-  </a>
+ 
 </p>
 
 ---
