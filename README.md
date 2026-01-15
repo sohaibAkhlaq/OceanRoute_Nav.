@@ -1,8 +1,5 @@
 # 🌊 OceanRoute Nav — Advanced Maritime Navigation Optimizer
 
-<p align="center">
-  <img width="600" alt="OceanRoute Nav Preview" src="file_00000000f85471faa93d3060352b01e0">
-</p>
 
 <p align="center">
   <i>Optimizing maritime routes with intelligence, efficiency, and real-time visualization.</i>
@@ -77,7 +74,7 @@ This project demonstrates advanced mastery of **data structures**, **graph algor
 
 ## 📂 Project File Structure
 OceanRoute_Nav/
-├── src/ → C++ source files (main.cpp, modules, utilities)-
+├── src/ → C++ source files (main.cpp, modules, utilities)
 ├── SFML/ → SFML library & dependencies
 ├── Data/ → Routes.txt, PortCharges.txt
 ├── Images/ → Port & route assets
