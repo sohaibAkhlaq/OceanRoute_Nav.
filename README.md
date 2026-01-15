@@ -74,11 +74,14 @@ This project demonstrates advanced mastery of **data structures**, **graph algor
 
 ## 📂 Project File Structure
 OceanRoute_Nav/
-OceanRoute_Nav/
+
+
 ├── src/
 
 │ ├── main.cpp
+
 │ ├── RouteManager.cpp
+
 │ └── Graph.cpp
 
 ├── SFML/
@@ -86,6 +89,7 @@ OceanRoute_Nav/
 ├── Data/
 
 │ ├── Routes.txt
+
 │ └── PortCharges.txt
 
 ├── Images/
