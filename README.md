@@ -94,17 +94,17 @@ OceanRoute_Nav/
 
 ## 📌 Badges
 <p align="center">
-  <a href="https://github.com/your-username/OceanRoute_Nav">
+  <a href="https://github.com/sohaibAkhlaq/OceanRoute_Nav">
     <img src="https://img.shields.io/badge/Status-Active-brightgreen" alt="Project Status"/>
   </a>
-  <a href="https://github.com/your-username/OceanRoute_Nav">
+  <a href="https://github.com/sohaibAkhlaq/OceanRoute_Nav">
     <img src="https://img.shields.io/badge/C++-100%25-blue" alt="Language"/>
   </a>
   <a href="https://www.sfml-dev.org/">
     <img src="https://img.shields.io/badge/SFML-Graphics-orange" alt="SFML"/>
   </a>
-  <a href="https://github.com/your-username/OceanRoute_Nav/stargazers">
-    <img src="https://img.shields.io/github/stars/your-username/OceanRoute_Nav?style=social" alt="Stars"/>
+  <a href="https://github.com/sohaibAkhlaq/OceanRoute_Nav/stargazers">
+    <img src="https://img.shields.io/github/stars/sohaibAkhlaqOceanRoute_Nav?style=social" alt="Stars"/>
   </a>
 </p>
 
@@ -115,6 +115,7 @@ OceanRoute_Nav/
 ### 1️⃣ Clone the repository
 
 git clone https://github.com/sohaibAkhlaq/OceanRoute_Nav.git
+
 cd OceanRoute_Nav
 
 2️⃣ Compile the project
