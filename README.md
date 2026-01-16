@@ -105,6 +105,7 @@ OceanRoute_Nav/
 ├── Pdf/
 
 └── .gitignore
+
 ---
 
 ## 📌 Badges
@@ -129,6 +130,7 @@ OceanRoute_Nav/
 
 git clone https://github.com/sohaibAkhlaq/OceanRoute_Nav.git
 
+
 cd OceanRoute_Nav
 
 2️⃣ Compile the project
@@ -138,6 +140,7 @@ g++ src/*.cpp -o OceanRouteNav -lsfml-graphics -lsfml-window -lsfml-system
 3️⃣ Run the executable
 
 ./OceanRouteNav
+
 
 ---
 
@@ -185,11 +188,8 @@ Its professional interface, animated pathfinding, and predictive features make i
 ## 💡 Visual Enhancements Included
 
 Interactive route maps with highlighting & fading effects
-
 Animated algorithm path exploration
-
 Dynamic dock & ship status visualization
-
 Filterable graph subviews by company, cost, and duration
 
 ---
