@@ -188,8 +188,11 @@ Its professional interface, animated pathfinding, and predictive features make i
 ## 💡 Visual Enhancements Included
 
 Interactive route maps with highlighting & fading effects
+
 Animated algorithm path exploration
+
 Dynamic dock & ship status visualization
+
 Filterable graph subviews by company, cost, and duration
 
 ---
